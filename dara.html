@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DARA V2 — Professional Social Carousel Studio</title>
+    <!-- SF Pro System Fonts / Google Inter, Space Grotesk, Playfair Display, Outfit, Fira Code -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Space+Grotesk:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Montserrat:wght@400;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* ==========================================================================
+           DARA V2 DESIGN SYSTEM TOKENS & BASE STYLES
+           ========================================================================== */
+        :root {
+            /* Surfaces & Backgrounds */
+            --bg-workspace: #09090B;
+            --bg-surface: #121215;
+            --bg-surface-elevated: #1C1C1E;
+            --bg-surface-hover: #27272A;
+            
+            /* Borders & Dividers */
+            --border-subtle: #1F1F23;
+            --border-default: #27272A;
+            --border-focus: #0A84FF;
+            
+            /* Typography Colors */
+            --text-primary: #FFFFFF;
+            --text-secondary: #A1A1AA;
+            --text-tertiary: #52525B;
+            
+            /* Accent Colors */
+            --accent-blue: #0A84FF;
+            --accent-green: #30D158;
+            --accent-purple: #A855F7;
+            --accent-red: #FF453A;
+            --accent-orange: #FF9F0A;
+            --accent-cyan: #00F0FF;
+            
+            /* Radius Tokens */
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 10px;
+            
+            /* Transitions */
+            --transition-fast: 120ms ease;
+            --transition-normal: 180ms ease;
+            
+            --font-family-system: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+            --font-family-mono: "Fira Code", monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            font-family: var(--font-family-system);
+            background-color: var(--bg-workspace);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            user-select: none;
+        }
+
+        /* Utility Scrollbars */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+        /* ==========================================================================
+           GLOBAL APPLICATION SHELL & HEADER
+           ========================================================================== */
+        header#app-header {
+            height: 50px;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border-default);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 16px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+        }
+
+        .header-logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            color: white;
+            cursor: pointer;
+        }
+
+        .header-logo .badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(10, 132, 255, 0.15);
+            color: var(--accent-blue);
+            border: 1px solid rgba(10, 132, 255, 0.3);
+            text-transform: uppercase;
+        }
+
+        .header-nav {
+            display: flex;
+            gap: 4px;
+        }
+
+        .nav-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            font-size: 13px;
+            font-weight: 500;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .nav-btn:hover { color: var(--text-primary); background: var(--bg-surface-hover); }
+        .nav-btn.active { color: var(--text-primary); background: rgba(255, 255, 255, 0.08); font-weight: 600; }
+
+        .header-actions { display: flex; align-items: center; gap: 10px; }
+
+        /* Standard Buttons */
+        .btn {
+            background: var(--bg-surface-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border-default);
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 32px;
+            outline: none;
+        }
+
+        .btn:hover { background: var(--bg-surface-hover); border-color: var(--text-tertiary); }
+        .btn:active { transform: translateY(1px); }
+
+        .btn-primary {
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+        }
+        .btn-primary:hover { background: #0071E3; }
+
+        .btn-ai {
+            background: linear-gradient(135deg, #A855F7 0%, #0A84FF 100%);
+            color: white;
+            border: none;
+            font-weight: 600;
+        }
+        .btn-ai:hover { opacity: 0.9; }
+
+        .btn-danger { background: var(--accent-red); color: white; border: none; }
+        .btn-danger:hover { background: #E03B30; }
+
+        .btn-ghost { background: transparent; border: none; color: var(--text-secondary); }
+        .btn-ghost:hover { color: white; background: var(--bg-surface-hover); }
+
+        /* ==========================================================================
+           MAIN CONTENT VIEWS
+           ========================================================================== */
+        main {
+            margin-top: 50px;
+            height: calc(100vh - 50px);
+            position: relative;
+        }
+
+        .view-section {
+            display: none;
+            height: 100%;
+            width: 100%;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        .view-section.active { display: block; }
+
+        /* ==========================================================================
+           1. DASHBOARD VIEW
+           ========================================================================== */
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            max-width: 1280px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .search-container { position: relative; width: 300px; }
+        .search-container input {
+            width: 100%;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            padding: 8px 12px 8px 34px;
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+            transition: border-color var(--transition-fast);
+        }
+        .search-container input:focus { border-color: var(--border-focus); }
+        .search-container svg {
+            position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+            fill: var(--text-secondary); width: 14px; height: 14px;
+        }
+
+        .posts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 20px;
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .post-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            transition: all var(--transition-fast);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            cursor: pointer;
+        }
+
+        .post-card:hover {
+            transform: translateY(-3px);
+            border-color: var(--text-tertiary);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+
+        .post-card-preview {
+            aspect-ratio: 4/5;
+            background: #000;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .post-card-actions {
+            position: absolute;
+            top: 8px; right: 8px;
+            display: flex; gap: 4px;
+            opacity: 0;
+            transition: opacity var(--transition-fast);
+        }
+
+        .post-card:hover .post-card-actions { opacity: 1; }
+
+        .post-card-info {
+            padding: 12px;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .post-card-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: white;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .post-card-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            max-width: 480px;
+            margin: 60px auto;
+        }
+
+        .empty-state-icon {
+            width: 56px; height: 56px;
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-default);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 16px;
+            color: var(--text-secondary);
+        }
+
+        /* ==========================================================================
+           2. EDITOR WORKSPACE & CANVAS (MAIN SURFACE)
+           ========================================================================== */
+        #view-editor { padding: 0; }
+
+        .editor-workspace {
+            display: flex;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        /* Left Slides Navigation Rail */
+        .editor-slide-rail {
+            width: 130px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border-default);
+            display: flex;
+            flex-direction: column;
+            padding: 12px 8px;
+            gap: 12px;
+            overflow-y: auto;
+            z-index: 10;
+        }
+
+        .slide-thumbnail-card {
+            aspect-ratio: 4/5;
+            background: #000;
+            border: 1px solid var(--border-default);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            position: relative;
+            transition: all var(--transition-fast);
+            overflow: hidden;
+        }
+
+        .slide-thumbnail-card:hover { border-color: var(--text-secondary); }
+
+        .slide-thumbnail-card.active {
+            border: 2px solid var(--accent-blue);
+            box-shadow: 0 0 10px rgba(10, 132, 255, 0.3);
+        }
+
+        .slide-number-badge {
+            position: absolute;
+            top: 4px; left: 4px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+
+        /* Central Canvas Area */
+        .editor-center-canvas {
+            flex: 1;
+            background: var(--bg-workspace);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .canvas-toolbar {
+            height: 40px;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border-default);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            font-size: 12px;
+        }
+
+        .canvas-viewport {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: auto;
+            padding: 40px;
+        }
+
+        /* Canonical 1080x1440 Slide Canvas */
+        .slide-canvas {
+            width: 1080px;
+            height: 1440px;
+            background: #111;
+            position: relative;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            transform-origin: center center;
+            overflow: hidden;
+        }
+
+        /* Canvas Layers */
+        .canvas-layer {
+            position: absolute;
+            cursor: move;
+            box-sizing: border-box;
+        }
+
+        .canvas-layer.selected {
+            outline: 2px solid var(--accent-blue);
+        }
+
+        /* 8-Point Bounding Handles */
+        .resize-handle {
+            width: 8px; height: 8px;
+            background: white;
+            border: 1px solid var(--accent-blue);
+            position: absolute;
+            z-index: 100;
+        }
+        .handle-nw { top: -4px; left: -4px; cursor: nwse-resize; }
+        .handle-ne { top: -4px; right: -4px; cursor: nesw-resize; }
+        .handle-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+        .handle-se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+
+        /* Dynamic Smart Alignment Guides */
+        .smart-guide {
+            position: absolute;
+            background: var(--accent-cyan);
+            z-index: 90;
+            pointer-events: none;
+        }
+        .smart-guide-v { width: 1px; top: 0; bottom: 0; }
+        .smart-guide-h { height: 1px; left: 0; right: 0; }
+
+        /* Right Inspector Panel */
+        .editor-right-inspector {
+            width: 320px;
+            background: var(--bg-surface);
+            border-left: 1px solid var(--border-default);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .inspector-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-default);
+            background: var(--bg-surface-elevated);
+        }
+
+        .inspector-tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all var(--transition-fast);
+        }
+
+        .inspector-tab.active {
+            color: white;
+            border-bottom-color: var(--accent-blue);
+            background: var(--bg-surface);
+        }
+
+        .inspector-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .form-group { margin-bottom: 14px; }
+        .form-group label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .form-control {
+            width: 100%;
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-default);
+            color: white;
+            padding: 8px 10px;
+            font-size: 12px;
+            border-radius: var(--radius-sm);
+            outline: none;
+        }
+
+        .form-control:focus { border-color: var(--border-focus); }
+
+        /* Layer Tree Item */
+        .layer-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 10px;
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            margin-bottom: 6px;
+            background: var(--bg-surface-elevated);
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .layer-item.selected {
+            border-color: var(--accent-blue);
+            background: rgba(10, 132, 255, 0.15);
+        }
+
+        /* ==========================================================================
+           3. BRAND KIT & TEMPLATES VIEW
+           ========================================================================== */
+        .brandkit-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-default);
+            padding-bottom: 8px;
+        }
+
+        /* ==========================================================================
+           4. MODAL DIALOGS
+           ========================================================================== */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: var(--radius-lg);
+            width: 540px;
+            max-width: 90vw;
+            padding: 24px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.8);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ==========================================================================
+       GLOBAL APP HEADER / COMPACT EDITOR BAR
+       ========================================================================== -->
+    <header id="app-header">
+        <div class="header-logo" onclick="navigateTo('dashboard')">
+            DARA <span class="badge">V2 STUDIO</span>
+        </div>
+
+        <nav class="header-nav" id="global-nav">
+            <button class="nav-btn active" id="nav-projects" onclick="navigateTo('dashboard')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>
+                Projects
+            </button>
+            <button class="nav-btn" id="nav-templates" onclick="navigateTo('templates')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                Templates
+            </button>
+            <button class="nav-btn" id="nav-director" onclick="navigateTo('creative-director')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.5a1.5 1.5 0 1 1-1.5-1.5 1.5 1.5 0 0 1 1.5 1.5zm0-4.5a1 1 0 0 1-2 0v-4a1 1 0 0 1 2 0z"/></svg>
+                Creative Director
+            </button>
+            <button class="nav-btn" id="nav-settings" onclick="navigateTo('settings')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                Settings
+            </button>
+        </nav>
+
+        <!-- Editor Toolbar (Visible only in Editor mode) -->
+        <div id="editor-header-bar" style="display: none; align-items: center; gap: 12px;">
+            <button class="btn btn-ghost" onclick="navigateTo('dashboard')">← Projects</button>
+            <input type="text" id="editor-project-title-input" class="form-control" style="width: 220px; font-weight: 600;" oninput="updateProjectTitle(this.value)">
+            <span style="font-size: 11px; color: var(--accent-green); font-weight: 600;">Saved ✓</span>
+            <div style="display: flex; gap: 4px;">
+                <button class="btn btn-sm" onclick="undo()" title="Undo (Cmd+Z)">↺</button>
+                <button class="btn btn-sm" onclick="redo()" title="Redo (Cmd+Shift+Z)">↻</button>
+            </div>
+            <select class="form-control" id="editor-zoom-select" onchange="setCanvasZoom(this.value)" style="width: 100px;">
+                <option value="fit-slide">Fit Slide</option>
+                <option value="fit-width">Fit Width</option>
+                <option value="100">100%</option>
+                <option value="50">50%</option>
+            </select>
+            <button class="btn btn-primary" onclick="exportActiveCarousel()">Export Carousel</button>
+        </div>
+
+        <div class="header-actions">
+            <button class="btn btn-ai" onclick="openCreationModal()">+ New Carousel</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- ==========================================================================
+           1. PROJECTS DASHBOARD VIEW
+           ========================================================================== -->
+        <section id="view-dashboard" class="view-section active">
+            <div class="dashboard-header">
+                <div>
+                    <h1 style="font-size: 24px; font-weight: 700; color: white;">Projects</h1>
+                    <p style="font-size: 13px; color: var(--text-secondary);">Manage and edit your social media carousels.</p>
+                </div>
+                <div class="search-container">
+                    <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                    <input type="text" id="dashboard-search" placeholder="Search projects..." onkeyup="filterProjects(this.value)">
+                </div>
+            </div>
+
+            <div class="posts-grid" id="dashboard-posts-grid">
+                <!-- Dynamically populated -->
+            </div>
+
+            <div class="empty-state" id="dashboard-empty-state" style="display: none;">
+                <div class="empty-state-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/></svg>
+                </div>
+                <h3 style="font-size: 16px; margin-bottom: 6px;">No Carousels Created Yet</h3>
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Create your first social media carousel using AI or custom templates.</p>
+                <button class="btn btn-primary" onclick="openCreationModal()">Create Carousel</button>
+            </div>
+        </section>
+
+        <!-- ==========================================================================
+           2. MAIN SLIDE EDITOR VIEW
+           ========================================================================== -->
+        <section id="view-editor" class="view-section">
+            <div class="editor-workspace">
+                
+                <!-- Left Vertical Slide Navigation Rail -->
+                <div class="editor-slide-rail" id="editor-slide-rail">
+                    <!-- Slide Thumbnails rendered dynamically -->
+                </div>
+
+                <!-- Central Canvas Area -->
+                <div class="editor-center-canvas">
+                    <div class="canvas-toolbar">
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <button class="btn btn-sm" onclick="addTextLayer()">+ Text</button>
+                            <button class="btn btn-sm" onclick="addImageLayer()">+ Image</button>
+                            <button class="btn btn-sm" onclick="addShapeLayer()">+ Shape</button>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-secondary);" id="canvas-status-info">
+                            Slide 1 of 5 (1080 x 1440 px)
+                        </div>
+                    </div>
+
+                    <div class="canvas-viewport" id="canvas-viewport">
+                        <div class="slide-canvas" id="slide-canvas">
+                            <!-- Layers rendered dynamically -->
+                            <div class="smart-guide smart-guide-v" id="guide-v" style="display: none;"></div>
+                            <div class="smart-guide smart-guide-h" id="guide-h" style="display: none;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right 3-Tab Inspector Panel -->
+                <div class="editor-right-inspector">
+                    <div class="inspector-tabs">
+                        <div class="inspector-tab active" id="tab-btn-layers" onclick="switchInspectorTab('layers')">Layers</div>
+                        <div class="inspector-tab" id="tab-btn-design" onclick="switchInspectorTab('design')">Design</div>
+                        <div class="inspector-tab" id="tab-btn-ai" onclick="switchInspectorTab('ai')">AI</div>
+                    </div>
+
+                    <div class="inspector-content">
+                        <!-- LAYERS TAB -->
+                        <div id="inspector-content-layers">
+                            <div id="layers-tree-list">
+                                <!-- Layer items rendered dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- DESIGN TAB -->
+                        <div id="inspector-content-design" style="display: none;">
+                            <div id="design-inspector-panel">
+                                <!-- Contextual properties rendered dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- AI TAB -->
+                        <div id="inspector-content-ai" style="display: none;">
+                            <div id="ai-inspector-panel">
+                                <!-- Contextual AI actions rendered dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==========================================================================
+           3. BRAND KIT & TEMPLATES VIEW
+           ========================================================================== -->
+        <section id="view-templates" class="view-section">
+            <div class="dashboard-header">
+                <div>
+                    <h1 style="font-size: 24px; font-weight: 700; color: white;">Design Templates</h1>
+                    <p style="font-size: 13px; color: var(--text-secondary);">Manage master visual templates and brand rules.</p>
+                </div>
+                <button class="btn btn-primary" onclick="createNewTemplate()">+ Create Template</button>
+            </div>
+
+            <div class="posts-grid" id="templates-grid">
+                <!-- Template cards rendered dynamically -->
+            </div>
+        </section>
+
+        <!-- ==========================================================================
+           4. CREATIVE DIRECTOR VIEW
+           ========================================================================== -->
+        <section id="view-creative-director" class="view-section">
+            <div class="dashboard-header" style="max-width: 900px;">
+                <div>
+                    <h1 style="font-size: 24px; font-weight: 700; color: white;">AI Creative Director Guidelines</h1>
+                    <p style="font-size: 13px; color: var(--text-secondary);">Define copy rules, visual prompts, and brand guidelines.</p>
+                </div>
+            </div>
+
+            <div style="max-width: 900px; margin: 0 auto; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: 24px;">
+                <div class="form-group">
+                    <label>Master Brand Rules & Visual Prompt Instructions</label>
+                    <textarea class="form-control" id="director-prompt-input" rows="8" style="font-family: var(--font-family-mono); font-size: 12px; line-height: 1.5;"></textarea>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 24px;">
+                    <button class="btn btn-primary" onclick="saveDirectorRules()">Save Guidelines</button>
+                    <button class="btn" onclick="resetDirectorRules()">Reset to Default</button>
+                </div>
+
+                <div style="border-top: 1px solid var(--border-subtle); padding-top: 20px;">
+                    <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 10px;">Dry-Run Prompt Simulation Console</h4>
+                    <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                        <input type="text" class="form-control" id="sim-topic-input" placeholder="Enter test topic (e.g., 5 Figma tips)...">
+                        <button class="btn btn-ai" onclick="runPromptSimulation()">Run Simulation</button>
+                    </div>
+                    <div id="sim-output-container" style="display: none; background: #000; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-default); font-family: var(--font-family-mono); font-size: 11px; color: var(--accent-green); white-space: pre-wrap;"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==========================================================================
+           5. AI SETTINGS VIEW
+           ========================================================================== -->
+        <section id="view-settings" class="view-section">
+            <div style="max-width: 900px; margin: 0 auto;">
+                <div style="margin-bottom: 24px;">
+                    <h1 style="font-size: 24px; font-weight: 700; color: white;">AI Configuration Engine</h1>
+                    <p style="font-size: 13px; color: var(--text-secondary);">Manage performance profiles, provider connections, and model task routing.</p>
+                </div>
+
+                <!-- Simple Performance Profiles -->
+                <div style="margin-bottom: 32px;">
+                    <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Performance Profile</h3>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+                        <div class="btn" id="preset-fast" onclick="selectPreset('fast')" style="height: auto; padding: 16px; flex-direction: column; align-items: flex-start; text-align: left;">
+                            <strong style="font-size: 14px; margin-bottom: 4px;">Fast Mode</strong>
+                            <span style="font-size: 11px; color: var(--text-secondary);">Fastest generation latencies (GPT-3.5 / Haiku).</span>
+                        </div>
+                        <div class="btn btn-primary" id="preset-premium" onclick="selectPreset('premium')" style="height: auto; padding: 16px; flex-direction: column; align-items: flex-start; text-align: left;">
+                            <strong style="font-size: 14px; margin-bottom: 4px;">Balanced / Premium</strong>
+                            <span style="font-size: 11px; color: rgba(255,255,255,0.8);">Highest reasoning and visual fidelity (GPT-4o / Claude).</span>
+                        </div>
+                        <div class="btn" id="preset-lowcost" onclick="selectPreset('low-cost')" style="height: auto; padding: 16px; flex-direction: column; align-items: flex-start; text-align: left;">
+                            <strong style="font-size: 14px; margin-bottom: 4px;">Low-Cost Mode</strong>
+                            <span style="font-size: 11px; color: var(--text-secondary);">Optimized token costs (Gemini / Llama).</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Collapsed Advanced Model Routing -->
+                <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 24px;">
+                    <h3 style="font-size: 14px; font-weight: 600; color: white; margin-bottom: 14px;">Provider Keys</h3>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                        <div class="form-group">
+                            <label>OpenAI API Key</label>
+                            <input type="password" class="form-control" id="key-openai" placeholder="sk-..." onchange="saveApiKey('openai', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label>Anthropic Claude API Key</label>
+                            <input type="password" class="form-control" id="key-claude" placeholder="sk-ant-..." onchange="saveApiKey('claude', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label>Google Gemini API Key</label>
+                            <input type="password" class="form-control" id="key-gemini" placeholder="AIzaSy..." onchange="saveApiKey('gemini', this.value)">
+                        </div>
+                        <div class="form-group">
+                            <label>DeepSeek API Key</label>
+                            <input type="password" class="form-control" id="key-deepseek" placeholder="sk-..." onchange="saveApiKey('deepseek', this.value)">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ==========================================================================
+       CREATION WIZARD MODAL DIALOG
+       ========================================================================== -->
+    <div class="modal-overlay" id="modal-creation">
+        <div class="modal-card">
+            <h2 style="font-size: 18px; font-weight: 700; margin-bottom: 6px;">What do you want to create?</h2>
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">Turn an idea, article link, or markdown notes into a social carousel.</p>
+
+            <div class="form-group">
+                <textarea class="form-control" id="creation-prompt-input" rows="4" placeholder="Enter topic, outline, or paste article URL..."></textarea>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 20px;">
+                <div class="form-group">
+                    <label>Target Slides</label>
+                    <select class="form-control" id="creation-slide-count">
+                        <option value="3">3 Slides</option>
+                        <option value="5" selected>5 Slides</option>
+                        <option value="7">7 Slides</option>
+                        <option value="10">10 Slides</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Template Style</label>
+                    <select class="form-control" id="creation-template-select">
+                        <option value="bbc">BBC News Style</option>
+                        <option value="editorial">Elegant Editorial</option>
+                        <option value="oceanic">Oceanic Gradient</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="creation-pipeline-status" style="display: none; margin-bottom: 16px; background: #000; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-default); font-size: 12px;">
+                <div style="color: var(--accent-blue); font-weight: 600;" id="pipeline-status-text">✓ Understanding topic...</div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn" onclick="closeCreationModal()">Cancel</button>
+                <button class="btn btn-ai" id="btn-submit-creation" onclick="submitCreationPipeline()">Create Carousel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================================================
+       DARA V2 JAVASCRIPT STATE ENGINE & RENDER PROJECTION
+       ========================================================================== -->
+    <script>
+        // State Initialization
+        let state = {
+            posts: [
+                {
+                    id: 'post-1',
+                    title: '5 SaaS Growth Hacks for 2026',
+                    topic: 'SaaS Scaling',
+                    templateId: 'bbc',
+                    updatedAt: new Date().toISOString(),
+                    slides: [
+                        {
+                            id: 's1',
+                            segment: 'Cover Slide',
+                            bgColor: '#b80000',
+                            layers: [
+                                { id: 'l1', type: 'text', role: 'headline', content: '5 SaaS Scaling Hacks', x: 60, y: 800, w: 960, h: 180, font: "'Space Grotesk', sans-serif", fontSize: 54, fontWeight: '800', color: '#FFFFFF' },
+                                { id: 'l2', type: 'text', role: 'body', content: 'How modern tech companies scale revenue 10x using AI-driven automation.', x: 60, y: 1020, w: 960, h: 120, font: "'Inter', sans-serif", fontSize: 24, fontWeight: '400', color: '#E2E8F0' }
+                            ]
+                        },
+                        {
+                            id: 's2',
+                            segment: 'Setup',
+                            bgColor: '#1c1c1e',
+                            layers: [
+                                { id: 'l3', type: 'text', role: 'headline', content: '1. Autonomous AI Pipelines', x: 60, y: 200, w: 960, h: 120, font: "'Space Grotesk', sans-serif", fontSize: 42, fontWeight: '700', color: '#FFFFFF' },
+                                { id: 'l4', type: 'text', role: 'body', content: 'Automating customer workflows reduces churn and increases retention across all customer cohorts.', x: 60, y: 360, w: 960, h: 200, font: "'Inter', sans-serif", fontSize: 24, fontWeight: '400', color: '#A1A1AA' }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            currentPostId: 'post-1',
+            activeSlideIndex: 0,
+            selectedLayerId: 'l1',
+            editingTemplateId: null,
+            zoomLevel: 1,
+            history: [],
+            historyIndex: -1,
+            currentView: 'dashboard',
+            settings: {
+                preset: 'premium',
+                apiKeys: { openai: '', claude: '', gemini: '', deepseek: '' }
+            }
+        };
+
+        // Initialize App
+        document.addEventListener('DOMContentLoaded', () => {
+            renderApp();
+            setupCanvasDrag();
+        });
+
+        // Main Navigation Function
+        function navigateTo(viewName) {
+            state.currentView = viewName;
+            
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+
+            const targetSection = document.getElementById('view-' + viewName);
+            if (targetSection) targetSection.classList.add('active');
+
+            const navBtn = document.getElementById('nav-' + viewName);
+            if (navBtn) navBtn.classList.add('active');
+
+            // Header UI Mode (Editor vs App Shell)
+            const editorHeaderBar = document.getElementById('editor-header-bar');
+            const globalNav = document.getElementById('global-nav');
+
+            if (viewName === 'editor') {
+                editorHeaderBar.style.display = 'flex';
+                globalNav.style.display = 'none';
+            } else {
+                editorHeaderBar.style.display = 'none';
+                globalNav.style.display = 'flex';
+            }
+
+            renderApp();
+        }
+
+        // Master State Renderer Projection
+        function renderApp() {
+            if (state.currentView === 'dashboard') renderDashboard();
+            if (state.currentView === 'editor') renderEditor();
+            if (state.currentView === 'templates') renderTemplates();
+        }
+
+        // Render Dashboard View
+        function renderDashboard() {
+            const grid = document.getElementById('dashboard-posts-grid');
+            const emptyState = document.getElementById('dashboard-empty-state');
+
+            if (!state.posts || state.posts.length === 0) {
+                grid.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            grid.innerHTML = state.posts.map(post => `
+                <div class="post-card" onclick="openProject('${post.id}')">
+                    <div class="post-card-preview" style="background: ${post.slides[0]?.bgColor || '#111'}">
+                        <div style="padding: 20px; color: white; text-align: center;">
+                            <div style="font-size: 14px; font-weight: 800; margin-bottom: 8px;">${post.slides[0]?.layers[0]?.content || post.title}</div>
+                        </div>
+                        <div class="post-card-actions">
+                            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteProject('${post.id}')">Delete</button>
+                        </div>
+                    </div>
+                    <div class="post-card-info">
+                        <div class="post-card-title">${post.title}</div>
+                        <div class="post-card-meta">
+                            <span>${post.slides.length} Slides</span>
+                            <span>Just now</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Open Project into Editor
+        function openProject(postId) {
+            state.currentPostId = postId;
+            state.activeSlideIndex = 0;
+            state.selectedLayerId = null;
+            navigateTo('editor');
+        }
+
+        // Render Slide Editor
+        function renderEditor() {
+            const post = state.posts.find(p => p.id === state.currentPostId);
+            if (!post) return;
+
+            document.getElementById('editor-project-title-input').value = post.title;
+
+            // Render Slide Rail
+            const rail = document.getElementById('editor-slide-rail');
+            rail.innerHTML = post.slides.map((slide, idx) => `
+                <div class="slide-thumbnail-card ${idx === state.activeSlideIndex ? 'active' : ''}" onclick="selectSlide(${idx})" style="background: ${slide.bgColor}">
+                    <span class="slide-number-badge">#${idx + 1}</span>
+                    <div style="padding: 10px; font-size: 8px; color: white; overflow: hidden; height: 100%;">
+                        ${slide.layers[0]?.content || ''}
+                    </div>
+                </div>
+            `).join('') + `<button class="btn btn-sm" onclick="addNewSlide()" style="width: 100%; font-weight: 600;">+ Add Slide</button>`;
+
+            // Render Active Slide Canvas
+            const activeSlide = post.slides[state.activeSlideIndex];
+            const canvas = document.getElementById('slide-canvas');
+            canvas.style.backgroundColor = activeSlide ? activeSlide.bgColor : '#111';
+
+            if (!activeSlide) return;
+
+            canvas.innerHTML = activeSlide.layers.map(layer => `
+                <div class="canvas-layer ${layer.id === state.selectedLayerId ? 'selected' : ''}" 
+                     id="layer-${layer.id}"
+                     onclick="selectLayer(event, '${layer.id}')"
+                     style="left: ${layer.x}px; top: ${layer.y}px; width: ${layer.w}px; height: ${layer.h}px; font-family: ${layer.font || 'sans-serif'}; font-size: ${layer.fontSize || 24}px; font-weight: ${layer.fontWeight || '400'}; color: ${layer.color || '#FFF'};">
+                    ${layer.content}
+                    ${layer.id === state.selectedLayerId ? `
+                        <div class="resize-handle handle-nw"></div>
+                        <div class="resize-handle handle-ne"></div>
+                        <div class="resize-handle handle-sw"></div>
+                        <div class="resize-handle handle-se"></div>
+                    ` : ''}
+                </div>
+            `).join('');
+
+            // Render Inspectors
+            renderInspector();
+        }
+
+        // Select Layer on Canvas
+        function selectLayer(event, layerId) {
+            event.stopPropagation();
+            state.selectedLayerId = layerId;
+            renderEditor();
+        }
+
+        function selectSlide(index) {
+            state.activeSlideIndex = index;
+            state.selectedLayerId = null;
+            renderEditor();
+        }
+
+        // Render Right Inspector Panel
+        function renderInspector() {
+            const post = state.posts.find(p => p.id === state.currentPostId);
+            if (!post) return;
+
+            const activeSlide = post.slides[state.activeSlideIndex];
+            const selectedLayer = activeSlide ? activeSlide.layers.find(l => l.id === state.selectedLayerId) : null;
+
+            // Render Layers Tree List
+            const treeList = document.getElementById('layers-tree-list');
+            if (activeSlide) {
+                treeList.innerHTML = activeSlide.layers.map(l => `
+                    <div class="layer-item ${l.id === state.selectedLayerId ? 'selected' : ''}" onclick="selectLayer(event, '${l.id}')">
+                        <span>${l.role || l.type.toUpperCase()}: ${l.content.substring(0, 18)}...</span>
+                        <span style="color: var(--text-tertiary);">x:${l.x} y:${l.y}</span>
+                    </div>
+                `).join('');
+            }
+
+            // Render Design Inspector
+            const designPanel = document.getElementById('design-inspector-panel');
+            if (selectedLayer) {
+                designPanel.innerHTML = `
+                    <div class="form-group">
+                        <label>Content</label>
+                        <textarea class="form-control" rows="3" oninput="updateLayerProperty('${selectedLayer.id}', 'content', this.value)">${selectedLayer.content}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Font Size (px)</label>
+                        <input type="number" class="form-control" value="${selectedLayer.fontSize || 24}" onchange="updateLayerProperty('${selectedLayer.id}', 'fontSize', parseInt(this.value))">
+                    </div>
+                    <div class="form-group">
+                        <label>Color</label>
+                        <input type="color" class="form-control" value="${selectedLayer.color || '#ffffff'}" onchange="updateLayerProperty('${selectedLayer.id}', 'color', this.value)">
+                    </div>
+                `;
+            } else if (activeSlide) {
+                designPanel.innerHTML = `
+                    <div class="form-group">
+                        <label>Slide Background Color</label>
+                        <input type="color" class="form-control" value="${activeSlide.bgColor}" onchange="updateSlideBg(this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label>Story Role / Segment</label>
+                        <select class="form-control" onchange="updateSlideSegment(this.value)">
+                            <option value="Cover Slide" ${activeSlide.segment === 'Cover Slide' ? 'selected' : ''}>Cover Slide (Hook)</option>
+                            <option value="Setup" ${activeSlide.segment === 'Setup' ? 'selected' : ''}>Setup (Context)</option>
+                            <option value="Value" ${activeSlide.segment === 'Value' ? 'selected' : ''}>Value (Core Info)</option>
+                            <option value="CTA Slide" ${activeSlide.segment === 'CTA Slide' ? 'selected' : ''}>CTA Slide</option>
+                        </select>
+                    </div>
+                `;
+            }
+
+            // Render AI Inspector
+            const aiPanel = document.getElementById('ai-inspector-panel');
+            aiPanel.innerHTML = `
+                <div class="form-group">
+                    <label>Contextual AI Prompt Action</label>
+                    <textarea class="form-control" id="ai-prompt-box" rows="4" placeholder="Describe changes (e.g., Make headline punchier)..."></textarea>
+                </div>
+                <button class="btn btn-ai" style="width: 100%;" onclick="runAiContextAction()">Run AI Action</button>
+            `;
+        }
+
+        // Layer & Slide Mutators
+        function updateLayerProperty(layerId, prop, val) {
+            const post = state.posts.find(p => p.id === state.currentPostId);
+            const activeSlide = post ? post.slides[state.activeSlideIndex] : null;
+            const layer = activeSlide ? activeSlide.layers.find(l => l.id === layerId) : null;
+
+            if (layer) {
+                layer[prop] = val;
+                renderEditor();
+            }
+        }
+
+        function updateSlideBg(color) {
+            const post = state.posts.find(p => p.id === state.currentPostId);
+            const activeSlide = post ? post.slides[state.activeSlideIndex] : null;
+            if (activeSlide) {
+                activeSlide.bgColor = color;
+                renderEditor();
+            }
+        }
+
+        function updateProjectTitle(title) {
+            const post = state.posts.find(p => p.id === state.currentPostId);
+            if (post) post.title = title;
+        }
+
+        function switchInspectorTab(tabName) {
+            document.querySelectorAll('.inspector-tab').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-btn-' + tabName).classList.add('active');
+
+            document.getElementById('inspector-content-layers').style.display = tabName === 'layers' ? 'block' : 'none';
+            document.getElementById('inspector-content-design').style.display = tabName === 'design' ? 'block' : 'none';
+            document.getElementById('inspector-content-ai').style.display = tabName === 'ai' ? 'block' : 'none';
+        }
+
+        // Canvas Drag & Drop System
+        function setupCanvasDrag() {
+            let draggingLayer = null;
+            let startX = 0, startY = 0;
+            let origX = 0, origY = 0;
+
+            document.addEventListener('mousedown', (e) => {
+                const layerEl = e.target.closest('.canvas-layer');
+                if (layerEl) {
+                    const layerId = layerEl.id.replace('layer-', '');
+                    const post = state.posts.find(p => p.id === state.currentPostId);
+                    const activeSlide = post ? post.slides[state.activeSlideIndex] : null;
+                    draggingLayer = activeSlide ? activeSlide.layers.find(l => l.id === layerId) : null;
+
+                    if (draggingLayer) {
+                        startX = e.clientX;
+                        startY = e.clientY;
+                        origX = draggingLayer.x;
+                        origY = draggingLayer.y;
+                    }
+                }
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (draggingLayer) {
+                    const dx = e.clientX - startX;
+                    const dy = e.clientY - startY;
+                    draggingLayer.x = Math.round(origX + dx);
+                    draggingLayer.y = Math.round(origY + dy);
+                    renderEditor();
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                draggingLayer = null;
+            });
+        }
+
+        // Modal Operations
+        function openCreationModal() {
+            document.getElementById('modal-creation').style.display = 'flex';
+        }
+
+        function closeCreationModal() {
+            document.getElementById('modal-creation').style.display = 'none';
+        }
+
+        function submitCreationPipeline() {
+            const prompt = document.getElementById('creation-prompt-input').value || 'Untitled Carousel';
+            const count = parseInt(document.getElementById('creation-slide-count').value);
+            const templateId = document.getElementById('creation-template-select').value;
+
+            const status = document.getElementById('creation-pipeline-status');
+            const statusText = document.getElementById('pipeline-status-text');
+            status.style.display = 'block';
+
+            statusText.innerText = '✓ Understanding topic...';
+            setTimeout(() => {
+                statusText.innerText = '✓ Researching insights...';
+                setTimeout(() => {
+                    statusText.innerText = '● Building carousel story...';
+                    setTimeout(() => {
+                        const newPost = {
+                            id: 'post-' + Date.now(),
+                            title: prompt.substring(0, 30),
+                            topic: prompt,
+                            templateId: templateId,
+                            updatedAt: new Date().toISOString(),
+                            slides: Array.from({ length: count }, (_, i) => ({
+                                id: 's-' + i,
+                                segment: i === 0 ? 'Cover Slide' : (i === count - 1 ? 'CTA Slide' : 'Value'),
+                                bgColor: templateId === 'bbc' ? '#b80000' : '#1c1917',
+                                layers: [
+                                    { id: 'l-' + i + '-1', type: 'text', role: 'headline', content: `Slide ${i + 1}: ${prompt}`, x: 60, y: 200, w: 960, h: 140, font: "'Space Grotesk', sans-serif", fontSize: 44, fontWeight: '700', color: '#FFF' },
+                                    { id: 'l-' + i + '-2', type: 'text', role: 'body', content: 'Detailed insight explanation formulated by AI Creative Director.', x: 60, y: 380, w: 960, h: 180, font: "'Inter', sans-serif", fontSize: 24, fontWeight: '400', color: '#AAA' }
+                                ]
+                            }))
+                        };
+
+                        state.posts.unshift(newPost);
+                        closeCreationModal();
+                        status.style.display = 'none';
+                        openProject(newPost.id);
+                    }, 600);
+                }, 600);
+            }, 600);
+        }
+
+        // Export Function
+        function exportActiveCarousel() {
+            alert('Exporting 1080x1440 PDF carousel for LinkedIn / Instagram...');
+        }
+
+        // Additional View Renderers
+        function renderTemplates() {
+            const grid = document.getElementById('templates-grid');
+            grid.innerHTML = `
+                <div class="post-card">
+                    <div class="post-card-preview" style="background: #b80000;">
+                        <span style="color: white; font-weight: 700;">BBC News Style</span>
+                    </div>
+                    <div class="post-card-info">
+                        <div class="post-card-title">BBC News Style</div>
+                        <div class="post-card-meta"><span>Bold Red & Clean Typography</span></div>
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

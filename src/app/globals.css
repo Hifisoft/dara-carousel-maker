@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Atlas CRM / Taskori inspired colors */
+  --bg-workspace: #0A0C10;
+  --bg-surface: #12151B;
+  --bg-surface-elevated: #1B1E24;
+  --bg-surface-hover: #242830;
+  
+  --border-subtle: #21242C;
+  --border-default: #2A2E39;
+  --border-focus: #2A84FF;
+  
+  --text-primary: #F0F6FC;
+  --text-secondary: #8B949E;
+  --text-tertiary: #5B636D;
+  
+  --accent-blue: #2A84FF;
+  --accent-green: #2ECA71;
+  --accent-purple: #A65EFE;
+  --accent-red: #FF4D4D;
+  --accent-orange: #FF9500;
+  --accent-cyan: #00F0FF;
+}
+
+/* Thinner, elegant outline icons matching the reference */
+.lucide {
+  stroke-width: 1.5px !important;
+}
+
+body {
+  background-color: var(--bg-workspace);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  user-select: none;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}

@@ -1,0 +1,6 @@
+{
+  "/api/ai/pipeline/route": "/api/ai/pipeline",
+  "/_not-found/page": "/_not-found",
+  "/api/ai/image/route": "/api/ai/image",
+  "/page": "/"
+}
