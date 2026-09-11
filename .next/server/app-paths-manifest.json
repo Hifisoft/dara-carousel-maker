@@ -1,6 +1,0 @@
-{
-  "/api/ai/pipeline/route": "app/api/ai/pipeline/route.js",
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/ai/image/route": "app/api/ai/image/route.js",
-  "/page": "app/page.js"
-}

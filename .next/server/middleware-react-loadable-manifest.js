@@ -1,1 +1,0 @@
-self.__REACT_LOADABLE_MANIFEST='{"app/page.tsx -> ../components/KonvaCanvas":{"id":888,"files":["static/chunks/1329d575.e90caf7248cfe5ea.js","static/chunks/716.22bea0935118b1e8.js","static/chunks/888.da47eb82e737c2ef.js"]}}';
