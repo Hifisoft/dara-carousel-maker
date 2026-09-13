@@ -10,7 +10,6 @@ import {
 } from '../lib/textEngine';
 import { hexOrColorToRgba } from '../lib/colorUtils';
 
-// Helper component for async image loading in Konva
 function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
   layer: ImageLayerNode;
   onSelect: () => void;
@@ -19,16 +18,65 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
   onTransformEnd: (e: any) => void;
 }) {
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     const src = layer.localPreviewUrl || layer.url;
     if (!src) return;
 
+    setLoadFailed(false);
     const img = new window.Image();
-    img.crossOrigin = 'Anonymous';
+    // Only set crossOrigin for external URLs — data URLs don't need it
+    // and setting it can actually block data URL loading in some browsers
+    if (!src.startsWith('data:')) {
+      img.crossOrigin = 'Anonymous';
+    }
     img.onload = () => setImageObj(img);
+    img.onerror = () => {
+      setImageObj(null);
+      setLoadFailed(true);
+    };
     img.src = src;
   }, [layer.url, layer.localPreviewUrl]);
+
+  // Show visible placeholder when image fails — makes broken images obvious
+  if (loadFailed || (!imageObj && !(layer.localPreviewUrl || layer.url))) {
+    return (
+      <Group
+        id={'node-' + layer.id}
+        x={layer.x}
+        y={layer.y}
+        rotation={layer.rotation}
+        opacity={layer.opacity}
+        draggable={!layer.isLocked}
+        visible={layer.isVisible}
+        onClick={(e) => { e.cancelBubble = true; onSelect(); }}
+        onTap={(e) => { e.cancelBubble = true; onSelect(); }}
+        onDragMove={onDragMove}
+        onDragEnd={onDragEnd}
+        onTransformEnd={onTransformEnd}
+      >
+        <Rect
+          width={layer.width}
+          height={layer.height}
+          fill="#1A1D24"
+          stroke="#EF4444"
+          strokeWidth={2}
+          dash={[8, 6]}
+          cornerRadius={8}
+        />
+        <Text
+          text="⚠️ Image failed to load"
+          fontSize={18}
+          fontFamily="sans-serif"
+          fill="#EF4444"
+          align="center"
+          width={layer.width}
+          y={layer.height / 2 - 10}
+        />
+      </Group>
+    );
+  }
 
   return (
     <KonvaImage
@@ -56,6 +104,7 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
     />
   );
 }
+
 
 function ImageSlotNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
   layer: ImageSlotLayerNode;

@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import {
   CarouselDocument, SlideSceneNode, LayerNode, TextLayerNode, ImageLayerNode, ImageSlotLayerNode,
-  ShapeLayerNode, ShapeFill, AISettings, AssetRecord, CarouselTemplate, MasterLayoutNode
+  ShapeLayerNode, ShapeFill, AISettings, AssetRecord, CarouselTemplate, MasterLayoutNode, LogoLayerNode
 } from '../types/schema';
+
 import {
   saveDocumentToIDB, getAllDocumentsFromIDB, deleteDocumentFromIDB, importLegacyLocalStorageToIDB,
   saveTemplateToIDB, getAllTemplatesFromIDB, deleteTemplateFromIDB
@@ -90,7 +91,9 @@ interface CarouselState {
 
   loadDocumentsFromStorage: () => Promise<void>;
   openDocument: (id: string) => void;
-  createDocument: (title: string, topic: string, slideCount: number, templateId: string) => Promise<string>;
+  createDocument: (title: string, topic: string, slideCount: number, templateId: string, aiCopy?: { title?: string; slides?: Array<{ index: number; segmentRole: string; slide_title?: string; slide_body?: string }> }) => Promise<string>;
+
+
   deleteDocument: (id: string) => Promise<void>;
 
   // Template System Actions
@@ -1798,14 +1801,19 @@ export const useCarouselStore = create<CarouselState>()(
       const tpl = state.templates.find(t => t.id === state.activeTemplateId);
       if (!tpl) return;
 
-      tpl.version = (tpl.version || 1) + 1;
-      tpl.updatedAt = new Date().toISOString();
+      // Clone synchronously before any await — Immer objects are read-only
+      const updatedTpl = {
+        ...JSON.parse(JSON.stringify(tpl)),
+        version: (tpl.version || 1) + 1,
+        updatedAt: new Date().toISOString(),
+      };
 
-      await saveTemplateToIDB(tpl);
+      await saveTemplateToIDB(updatedTpl);
       set((draft) => {
         draft.templateDirty = false;
       });
     },
+
 
     applyTemplateToCarousel: (templateId, documentId) => set((state) => {
       const targetDoc = state.documents.find(d => d.id === (documentId || state.activeDocumentId));
@@ -2244,40 +2252,53 @@ export const useCarouselStore = create<CarouselState>()(
       state.historyIndex = -1;
     }),
 
-    createDocument: async (title, topic, slideCount, templateId) => {
+    createDocument: async (title, topic, slideCount, templateId, aiCopy?) => {
+
       const state = get();
       const selectedTpl = state.templates.find(t => t.id === templateId) || state.templates.find(t => t.isDefault) || state.templates[0];
       const newDocId = `doc-${Date.now()}`;
+
+      // ── Brand asset extraction from template ────────────────────────────────
+      // Pull headline/body fonts from template design tokens (fallback to Space Grotesk)
+      const headlineFont = selectedTpl?.tokens?.typography?.headlineFont || 'Space Grotesk';
+      const bodyFont     = selectedTpl?.tokens?.typography?.bodyFont     || 'Space Grotesk';
+      const primaryColor = selectedTpl?.tokens?.colors?.primary          || '#FFFFFF';
+      const bgColor      = selectedTpl?.tokens?.colors?.background       || '#0D0E12';
+
+      // Find a brand logo layer across ALL template layouts to inject into every slide
+      const allTplLayers = (selectedTpl?.layouts ?? []).flatMap(l => l.layers);
+      const brandLogoLayer = allTplLayers.find(l => l.type === 'logo') as LogoLayerNode | undefined;
 
       const slides: SlideSceneNode[] = Array.from({ length: slideCount }, (_, idx) => {
         const slideId = `s-${Date.now()}-${idx}`;
         const segmentRole: SlideSceneNode['segmentRole'] = idx === 0 ? 'cover_hook' : (idx === slideCount - 1 ? 'cta' : 'value');
 
+        // Pick the best matching layout from the template
         let layout: MasterLayoutNode | undefined;
         if (selectedTpl) {
           if (segmentRole === 'cover_hook') layout = selectedTpl.layouts.find(l => l.role === 'cover');
-          else if (segmentRole === 'cta') layout = selectedTpl.layouts.find(l => l.role === 'cta');
+          else if (segmentRole === 'cta')   layout = selectedTpl.layouts.find(l => l.role === 'cta');
           else layout = selectedTpl.layouts.find(l => l.role === 'content' || l.role === 'image_led');
           if (!layout) layout = selectedTpl.layouts[0];
         }
 
-        const layers: LayerNode[] = layout ? layout.layers.map((tLyr) => {
+        // Get AI copy for this slide
+        const aiSlide = aiCopy?.slides?.find(s => s.index === idx);
+
+        // Clone ALL layers from the matched layout — no text replacement yet
+        let layers: LayerNode[] = layout ? layout.layers.map((tLyr) => {
           const cloned: LayerNode = JSON.parse(JSON.stringify(tLyr));
           cloned.id = `l-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
-          if (cloned.semanticRole === 'headline' && cloned.type === 'text') {
-            (cloned as TextLayerNode).content = idx === 0 ? (title || 'Untitled Carousel') : `Key Takeaway #${idx}`;
-          } else if (cloned.semanticRole === 'subtitle' && cloned.type === 'text' && idx === 0 && topic) {
-            (cloned as TextLayerNode).content = topic;
-          }
           return cloned;
         }) : [
+          // Fallback minimal layer when no template layout found
           {
             id: `l-${Date.now()}-${idx}-1`,
             name: idx === 0 ? 'Headline' : `Section #${idx}`,
             semanticRole: 'headline',
             type: 'text',
             role: 'headline',
-            content: idx === 0 ? (title || 'Untitled Carousel') : `Key Takeaway #${idx}`,
+            content: aiSlide?.slide_title || (idx === 0 ? (aiCopy?.title || title || 'Untitled Carousel') : `Key Takeaway #${idx}`),
             x: 60,
             y: idx === 0 ? 800 : 200,
             width: 960,
@@ -2287,23 +2308,65 @@ export const useCarouselStore = create<CarouselState>()(
             isLocked: false,
             isVisible: true,
             zIndex: 0,
-            fontFamily: 'Space Grotesk',
+            fontFamily: headlineFont,
             fontSize: 48,
             fontWeight: '800',
             fontStyle: 'normal',
             lineHeight: 1.15,
             letterSpacing: 0,
             align: 'left',
-            fill: '#FFFFFF',
+            fill: primaryColor,
             styleRuns: []
-          }
+          } as LayerNode
         ];
+
+        // ── AI Copy injection — position-based ─────────────────────────────
+        // Sort text layers by fontSize descending so we can reliably say:
+        //   rank 0 (largest) = main headline
+        //   rank 1           = subtitle / body
+        // This works regardless of what semanticRole is set on the template layers.
+        if (aiSlide) {
+          const textLayers = layers
+            .filter(l => l.type === 'text')
+            .sort((a, b) => ((b as TextLayerNode).fontSize || 0) - ((a as TextLayerNode).fontSize || 0));
+
+          textLayers.forEach((layer, rank) => {
+            const tl = layer as TextLayerNode;
+            if (rank === 0) {
+              // Largest text layer → headline
+              tl.content = aiSlide.slide_title || aiCopy?.title || title || tl.content;
+            } else if (rank === 1 && aiSlide.slide_body) {
+              // Second text layer → body copy (content slides) or subtitle (cover/cta)
+              tl.content = aiSlide.slide_body;
+            }
+          });
+        } else {
+          // No AI copy — use sensible defaults from topic/title
+          const textLayers = layers
+            .filter(l => l.type === 'text')
+            .sort((a, b) => ((b as TextLayerNode).fontSize || 0) - ((a as TextLayerNode).fontSize || 0));
+          textLayers.forEach((layer, rank) => {
+            const tl = layer as TextLayerNode;
+            if (rank === 0) tl.content = idx === 0 ? (title || 'Untitled Carousel') : `Key Takeaway #${idx}`;
+            else if (rank === 1 && idx === 0) tl.content = topic || tl.content;
+          });
+        }
+
+        // ── Logo injection ──────────────────────────────────────────────────
+        // If this layout's cloned layers don't already include a logo, inject
+        // the brand logo found elsewhere in the template so it appears on every slide.
+        const hasLogo = layers.some(l => l.type === 'logo');
+        if (brandLogoLayer && !hasLogo) {
+          const clonedLogo: LogoLayerNode = JSON.parse(JSON.stringify(brandLogoLayer));
+          clonedLogo.id = `l-${Date.now()}-${idx}-logo`;
+          layers = [...layers, clonedLogo];
+        }
 
         return {
           id: slideId,
           segmentRole,
           layoutId: layout?.id || (idx === 0 ? 'cover_standard' : (idx === slideCount - 1 ? 'cta_standard' : 'content_standard')),
-          backgroundColor: layout?.backgroundColor || (templateId === 'bbc' ? '#b80000' : '#0D0E12'),
+          backgroundColor: layout?.backgroundColor || bgColor,
           backgroundGradient: layout?.backgroundGradient ? JSON.parse(JSON.stringify(layout.backgroundGradient)) : undefined,
           layers
         };
@@ -2315,7 +2378,7 @@ export const useCarouselStore = create<CarouselState>()(
         workspaceId: 'default-workspace',
         title: title || 'Untitled Carousel',
         topic,
-        templateRef: { templateId, version: 1, overrides: {} },
+        templateRef: { templateId: selectedTpl?.id || templateId, version: selectedTpl?.version || 1, overrides: {} },
         dimensions: { width: 1080, height: 1440, aspectRatio: '4:5' },
         slides,
         globalCreativeDirection: {
@@ -2343,7 +2406,9 @@ export const useCarouselStore = create<CarouselState>()(
       return newDoc.id;
     },
 
+
     deleteDocument: async (id) => {
+
       await deleteDocumentFromIDB(id);
       set((state) => {
         state.documents = state.documents.filter(d => d.id !== id);
