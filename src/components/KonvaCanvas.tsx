@@ -9,6 +9,7 @@ import {
   calculateVerticalAlignOffset
 } from '../lib/textEngine';
 import { hexOrColorToRgba } from '../lib/colorUtils';
+import { resolveCssFontFamily, loadFont } from '../lib/fontLoader';
 
 function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
   layer: ImageLayerNode;
@@ -681,9 +682,13 @@ export function KonvaCanvas() {
                   textLayer.verticalAlign
                 );
 
-                const fontStyleStr = `${textLayer.fontStyle === 'italic' ? 'italic ' : ''}${
-                  textLayer.fontWeight === '700' || textLayer.fontWeight === '800' || textLayer.fontWeight === 'bold' ? 'bold' : 'normal'
-                }`.trim();
+                const isItalic = textLayer.fontStyle === 'italic';
+                const weight = textLayer.fontWeight || '400';
+                const fontStyleStr = isItalic
+                  ? (weight === '400' || weight === 'normal' ? 'italic' : `italic ${weight}`)
+                  : (weight === 'normal' ? 'normal' : weight);
+
+                const resolvedFont = resolveCssFontFamily(textLayer.fontFamily);
 
                 const shadowProps = getShadowProps(textLayer);
                 const textShadowProps = textLayer.textShadow?.enabled ? {
@@ -704,7 +709,7 @@ export function KonvaCanvas() {
                     height={layer.height - vOffset}
                     text={displayContent}
                     fontSize={textLayer.fontSize}
-                    fontFamily={textLayer.fontFamily}
+                    fontFamily={resolvedFont}
                     fontStyle={fontStyleStr}
                     lineHeight={lineHeightMult}
                     letterSpacing={letterSpacingPx}
@@ -716,6 +721,7 @@ export function KonvaCanvas() {
                     {...textShadowProps}
                     draggable={!layer.isLocked && !isEditing}
                     visible={layer.isVisible && !isEditing}
+
                     onClick={(e) => {
                       e.cancelBubble = true;
                       setSelectedLayerId(layer.id);
@@ -1149,7 +1155,7 @@ export function KonvaCanvas() {
               width: `${editingLayer.width}px`,
               height: `${editingLayer.height}px`,
               fontSize: `${editingLayer.fontSize}px`,
-              fontFamily: editingLayer.fontFamily,
+              fontFamily: resolveCssFontFamily(editingLayer.fontFamily),
               fontWeight: editingLayer.fontWeight,
               color: editingLayer.fill,
               textAlign: editingLayer.align,

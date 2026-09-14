@@ -15,6 +15,7 @@ interface FigmaTypographyControlProps {
 
 export function FigmaTypographyControl({ layer, onUpdate }: FigmaTypographyControlProps) {
   const [fontSearch, setFontSearch] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isFontDropdownOpen, setIsFontDropdownOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -22,9 +23,11 @@ export function FigmaTypographyControl({ layer, onUpdate }: FigmaTypographyContr
   const [styleRunText, setStyleRunText] = useState('');
   const [styleRunColor, setStyleRunColor] = useState('#26BFFF');
 
-  const filteredFonts = POPULAR_FONTS.filter((f) =>
-    f.family.toLowerCase().includes(fontSearch.toLowerCase())
-  );
+  const filteredFonts = POPULAR_FONTS.filter((f) => {
+    const matchesSearch = f.family.toLowerCase().includes(fontSearch.toLowerCase());
+    const matchesCategory = selectedCategory === 'all' || f.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   const fontVariants = getFontVariants(layer.fontFamily);
 
@@ -36,9 +39,13 @@ export function FigmaTypographyControl({ layer, onUpdate }: FigmaTypographyContr
 
   const handleFontSelect = async (family: string) => {
     setIsFontDropdownOpen(false);
-    await loadFont(family, layer.fontWeight, layer.fontStyle);
-    onUpdate({ fontFamily: family });
+    const variants = getFontVariants(family);
+    const hasWeight = variants.some((v) => v.weight === layer.fontWeight);
+    const newWeight = hasWeight ? layer.fontWeight : (variants.find((v) => v.weight === '700')?.weight || variants[0]?.weight || '400');
+    await loadFont(family, newWeight, layer.fontStyle);
+    onUpdate({ fontFamily: family, fontWeight: newWeight });
   };
+
 
   const handleLineHeightChange = (val: number, unit: 'Auto' | 'px' | '%') => {
     const mult = unit === '%' ? val / 100 : unit === 'px' ? val / layer.fontSize : 1.2;
@@ -87,42 +94,93 @@ export function FigmaTypographyControl({ layer, onUpdate }: FigmaTypographyContr
           onClick={() => setIsFontDropdownOpen(!isFontDropdownOpen)}
         >
           <span style={{ fontFamily: layer.fontFamily }}>{layer.fontFamily}</span>
-          <ChevronDown className="w-4 h-4 text-neutral-400" />
+          <ChevronDown className={`w-4 h-4 text-neutral-400 transition-transform ${isFontDropdownOpen ? 'rotate-180' : ''}`} />
         </button>
 
         {isFontDropdownOpen && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-[#222222] border border-[#3E3E3E] rounded-md shadow-2xl z-50 overflow-hidden max-h-60 flex flex-col animate-in fade-in zoom-in-95 duration-100">
-            <div className="p-2 border-b border-[#333333] flex items-center gap-2 bg-[#1A1A1A]">
-              <Search className="w-3.5 h-3.5 text-neutral-400" />
+          <div className="absolute top-full left-0 right-0 mt-1 bg-[#1E1E1E] border border-[#3E3E3E] rounded-lg shadow-2xl z-50 overflow-hidden max-h-80 flex flex-col animate-in fade-in zoom-in-95 duration-100">
+            {/* Search Input */}
+            <div className="p-2 border-b border-[#333333] flex items-center gap-2 bg-[#171717]">
+              <Search className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
               <input
                 type="text"
                 className="w-full bg-transparent text-xs text-white outline-none placeholder:text-neutral-500"
-                placeholder="Search font family..."
+                placeholder="Search fonts (e.g. Montserrat, Helvetica, Inter)..."
                 value={fontSearch}
                 onChange={(e) => setFontSearch(e.target.value)}
                 autoFocus
               />
-            </div>
-            <div className="overflow-y-auto flex-1 p-1 divide-y divide-white/5">
-              {filteredFonts.map((font) => (
+              {fontSearch && (
                 <button
-                  key={font.family}
                   type="button"
-                  className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-[#333333] transition-colors ${
-                    layer.fontFamily === font.family ? 'bg-blue-600/30 text-blue-400 font-bold' : 'text-white'
-                  }`}
-                  onClick={() => handleFontSelect(font.family)}
+                  onClick={() => setFontSearch('')}
+                  className="text-neutral-500 hover:text-white text-xs px-1"
                 >
-                  <span style={{ fontFamily: font.family }} className="text-sm">
-                    {font.family}
-                  </span>
-                  {layer.fontFamily === font.family && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Category Filter Chips */}
+            <div className="px-2 py-1.5 border-b border-[#2B2B2B] bg-[#141414] flex gap-1 overflow-x-auto no-scrollbar">
+              {(
+                [
+                  { id: 'all', label: 'All' },
+                  { id: 'sans-serif', label: 'Sans' },
+                  { id: 'display', label: 'Display' },
+                  { id: 'serif', label: 'Serif' },
+                  { id: 'monospace', label: 'Mono' },
+                  { id: 'handwriting', label: 'Script' }
+                ] as const
+              ).map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap transition-colors ${
+                    selectedCategory === cat.id
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-[#262626] text-neutral-400 hover:text-white hover:bg-[#303030]'
+                  }`}
+                  onClick={() => setSelectedCategory(cat.id)}
+                >
+                  {cat.label}
                 </button>
               ))}
+            </div>
+
+            {/* Font List */}
+            <div className="overflow-y-auto flex-1 p-1 divide-y divide-white/5">
+              {filteredFonts.length === 0 ? (
+                <div className="p-4 text-center text-xs text-neutral-500">
+                  No fonts matching "{fontSearch}"
+                </div>
+              ) : (
+                filteredFonts.map((font) => (
+                  <button
+                    key={font.family}
+                    type="button"
+                    className={`w-full px-3 py-2.5 text-left text-xs flex items-center justify-between hover:bg-[#2A2A2A] rounded transition-colors ${
+                      layer.fontFamily === font.family ? 'bg-blue-600/20 text-blue-400 font-bold' : 'text-white'
+                    }`}
+                    onClick={() => handleFontSelect(font.family)}
+                  >
+                    <div className="flex flex-col items-start gap-0.5">
+                      <span style={{ fontFamily: font.family }} className="text-sm tracking-wide">
+                        {font.family}
+                      </span>
+                      <span className="text-[9px] text-neutral-500 font-normal uppercase tracking-wider">
+                        {font.category} {font.popularHeadline ? '• Headline' : font.popularBody ? '• Body' : ''}
+                      </span>
+                    </div>
+                    {layer.fontFamily === font.family && <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />}
+                  </button>
+                ))
+              )}
             </div>
           </div>
         )}
       </div>
+
 
       {/* 2. FONT STYLE / WEIGHT & FONT SIZE */}
       <div className="grid grid-cols-2 gap-2">
