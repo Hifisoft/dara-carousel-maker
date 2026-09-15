@@ -318,6 +318,7 @@ export function KonvaCanvas() {
 
   const stageRef = useRef<any>(null);
   const trRef = useRef<any>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.4);
 
   // Interactive Shape Drawing State
@@ -329,22 +330,32 @@ export function KonvaCanvas() {
   const [guideV, setGuideV] = useState<number | null>(null);
   const [guideH, setGuideH] = useState<number | null>(null);
 
-  // Dynamic Scale Calculation
+  // Dynamic Scale Calculation with ResizeObserver for exact viewport fitting
   useEffect(() => {
-    const handleResize = () => {
-      const parent = document.getElementById('canvas-viewport');
-      if (parent) {
-        const w = parent.clientWidth - 80;
-        const h = parent.clientHeight - 80;
-        const s = Math.min(w / 1080, h / 1440);
-        setScale(Math.max(0.1, Math.min(1.5, s)));
-      }
+    const parent = viewportRef.current || document.getElementById('canvas-viewport');
+    if (!parent) return;
+
+    const updateScale = () => {
+      const rect = parent.getBoundingClientRect();
+      const paddingX = rect.width < 600 ? 16 : rect.width < 1024 ? 32 : 48;
+      const paddingY = rect.height < 600 ? 16 : rect.height < 900 ? 32 : 48;
+      const availableW = Math.max(100, rect.width - paddingX);
+      const availableH = Math.max(100, rect.height - paddingY);
+      const s = Math.min(availableW / 1080, availableH / 1440);
+      setScale(Math.max(0.08, Math.min(1.5, Number(s.toFixed(3)))));
     };
 
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(parent);
+
+    window.addEventListener('resize', updateScale);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateScale);
+    };
   }, []);
+
 
   // Update Transformer selection for single & multi-select
   useEffect(() => {
@@ -599,36 +610,40 @@ export function KonvaCanvas() {
   };
 
   const handleResetZoom = () => {
-    const parent = document.getElementById('canvas-viewport');
+    const parent = viewportRef.current || document.getElementById('canvas-viewport');
     if (parent) {
-      const w = parent.clientWidth - 40;
-      const h = parent.clientHeight - 40;
-      const s = Math.min(w / 1080, h / 1440);
-      setScale(Math.max(0.1, Math.min(1.5, s)));
+      const rect = parent.getBoundingClientRect();
+      const paddingX = rect.width < 600 ? 16 : rect.width < 1024 ? 32 : 48;
+      const paddingY = rect.height < 600 ? 16 : rect.height < 900 ? 32 : 48;
+      const availableW = Math.max(100, rect.width - paddingX);
+      const availableH = Math.max(100, rect.height - paddingY);
+      const s = Math.min(availableW / 1080, availableH / 1440);
+      setScale(Math.max(0.08, Math.min(1.5, Number(s.toFixed(3)))));
     }
   };
 
   return (
     <div 
       id="canvas-viewport"
-      className={`flex-1 flex items-center justify-center p-2 sm:p-6 lg:p-10 overflow-auto relative bg-workspace select-none ${
+      ref={viewportRef}
+      className={`flex-1 min-h-0 min-w-0 w-full h-full flex items-center justify-center p-2 sm:p-4 lg:p-6 overflow-hidden relative bg-workspace select-none ${
         editorMode === 'draw-shape' ? 'cursor-crosshair' : ''
       }`}
     >
       {/* Floating Canvas Zoom Bar */}
-      <div className="absolute bottom-4 right-4 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-lg px-2 py-1 flex items-center gap-2 shadow-2xl text-xs font-semibold text-white">
+      <div className="absolute bottom-3 right-3 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-lg px-2 py-1 flex items-center gap-1.5 shadow-2xl text-xs font-semibold text-white">
         <button
-          className="p-1 hover:bg-surface rounded text-text-secondary hover:text-white"
+          className="p-1 hover:bg-surface rounded text-text-secondary hover:text-white text-xs"
           onClick={() => handleZoom(-0.05)}
           title="Zoom Out"
         >
           -
         </button>
-        <span className="text-[11px] font-mono text-accent-blue font-bold min-w-[36px] text-center">
+        <span className="text-[10px] font-mono text-accent-blue font-bold min-w-[32px] text-center">
           {Math.round(scale * 100)}%
         </span>
         <button
-          className="p-1 hover:bg-surface rounded text-text-secondary hover:text-white"
+          className="p-1 hover:bg-surface rounded text-text-secondary hover:text-white text-xs"
           onClick={() => handleZoom(0.05)}
           title="Zoom In"
         >
@@ -644,7 +659,7 @@ export function KonvaCanvas() {
       </div>
 
       <div 
-        className="w-[1080px] h-[1440px] shadow-2xl relative transition-transform duration-75"
+        className="w-[1080px] h-[1440px] shadow-2xl relative transition-transform duration-75 origin-center shrink-0"
         style={{
           transform: `scale(${scale})`,
           backgroundColor: currentBgColor
@@ -652,6 +667,7 @@ export function KonvaCanvas() {
       >
         <Stage
           ref={stageRef}
+
           width={1080}
           height={1440}
           onMouseDown={handleStageMouseDown}

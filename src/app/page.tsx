@@ -293,7 +293,8 @@ export default function AppMain() {
   };
 
   return (
-    <div className="min-h-screen bg-workspace text-white flex flex-col overflow-hidden select-none">
+    <div className="h-screen max-h-screen w-screen overflow-hidden bg-workspace text-white flex flex-col select-none">
+
       <NavigationHeader
         onOpenCreationModal={() => setIsModalOpen(true)}
         onOpenSaveAsTemplateModal={(m) => {
@@ -395,13 +396,13 @@ export default function AppMain() {
 
       {/* EDITOR VIEW */}
       {currentView === 'editor' && (
-        <main className="pt-[50px] flex-1 flex flex-col overflow-hidden w-full relative">
+        <main className="pt-[50px] flex-1 min-h-0 flex flex-col overflow-hidden w-full relative">
           {/* Upper Editor Workspace */}
-          <div className="flex-1 flex overflow-hidden relative">
+          <div className="flex-1 min-h-0 flex overflow-hidden relative">
             {/* Quick Tool Rail (Left Edge) */}
-            <div className="w-[60px] bg-surface border-r border-border-default flex flex-col items-center py-4 gap-4 z-30 relative">
+            <div className="w-[52px] sm:w-[60px] shrink-0 bg-surface border-r border-border-default flex flex-col items-center py-3 sm:py-4 gap-2.5 sm:gap-3.5 z-30 relative select-none">
               <button
-                className="p-2.5 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center gap-1 transition-colors"
+                className="p-2 sm:p-2.5 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center gap-1 transition-colors"
                 onClick={() => addTextLayer()}
                 title="Add Text Layer"
               >
@@ -410,7 +411,7 @@ export default function AppMain() {
               </button>
 
               <button
-                className="p-2.5 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center gap-1 transition-colors"
+                className="p-2 sm:p-2.5 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center gap-1 transition-colors"
                 onClick={() => fileInputRef.current?.click()}
                 title="Add / Upload Image"
               >
@@ -421,7 +422,7 @@ export default function AppMain() {
               {/* Shape Tool with Popover */}
               <div className="relative">
                 <button
-                  className={`p-2.5 rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                  className={`p-2 sm:p-2.5 rounded-lg flex flex-col items-center gap-1 transition-colors ${
                     showShapePicker || editorMode === 'draw-shape'
                       ? 'bg-accent-blue text-white'
                       : 'bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white'
@@ -435,7 +436,7 @@ export default function AppMain() {
 
                 {/* Shape Picker Popover */}
                 {showShapePicker && (
-                  <div className="absolute left-[70px] top-0 bg-surface-elevated border border-border-default rounded-lg p-2 shadow-2xl z-50 flex flex-col gap-1 w-[150px]">
+                  <div className="absolute left-[62px] top-0 bg-surface-elevated border border-border-default rounded-lg p-2 shadow-2xl z-50 flex flex-col gap-1 w-[150px]">
                     <span className="text-[10px] font-bold text-text-tertiary uppercase px-2 py-1">
                       Choose Shape
                     </span>
@@ -488,7 +489,7 @@ export default function AppMain() {
               </div>
 
               <button
-                className="p-2.5 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center gap-1 transition-colors"
+                className="p-2 sm:p-2.5 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center gap-1 transition-colors"
                 onClick={() => setShowLayoutPicker(true)}
                 title="Add Slide Layout"
               >
@@ -498,17 +499,17 @@ export default function AppMain() {
             </div>
 
             {/* Central Konva Canvas Stage */}
-            <div className={`flex-1 flex flex-col overflow-hidden relative ${mobileEditorTab === 'inspector' ? 'hidden lg:flex' : 'flex'}`}>
+            <div className={`flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden relative ${mobileEditorTab === 'inspector' ? 'hidden lg:flex' : 'flex'}`}>
               <KonvaCanvas />
             </div>
 
             {/* Right 4-Tab Inspector Panel */}
-            <div className={`w-full lg:w-[340px] flex-col overflow-hidden ${mobileEditorTab === 'canvas' ? 'hidden lg:flex' : 'flex'}`}>
+            <div className={`w-full lg:w-[320px] xl:w-[340px] shrink-0 flex-col overflow-hidden h-full ${mobileEditorTab === 'canvas' ? 'hidden lg:flex' : 'flex'}`}>
               <InspectorPanel />
             </div>
 
             {/* Mobile View Toggle Bar (visible only on <1024px screens) */}
-            <div className="lg:hidden fixed bottom-[115px] left-1/2 -translate-x-1/2 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-full p-1 shadow-2xl flex items-center gap-1">
+            <div className="lg:hidden fixed bottom-[105px] left-1/2 -translate-x-1/2 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-full p-1 shadow-2xl flex items-center gap-1">
               <button
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors ${
                   mobileEditorTab === 'canvas'
@@ -536,14 +537,14 @@ export default function AppMain() {
 
           {/* Bottom Horizontal Strip: Master Layout Navigator (in Template Mode) vs Carousel Slide Deck (in Standard Mode) */}
           {isTemplateEditorMode ? (
-            <div className="h-[105px] bg-surface border-t border-border-default flex items-center px-4 gap-3 overflow-x-auto z-20">
+            <div className="h-[92px] sm:h-[96px] bg-surface border-t border-border-default flex items-center px-3 sm:px-4 gap-2.5 sm:gap-3 overflow-x-auto z-20 shrink-0 select-none">
               {getActiveTemplate()?.layouts.map((layout) => {
                 const isActive = layout.id === activeLayoutId;
 
                 return (
                   <div
                     key={layout.id}
-                    className={`w-[110px] h-[85px] rounded-lg border cursor-pointer relative overflow-hidden transition-all shrink-0 group flex flex-col justify-between p-2.5 ${
+                    className={`w-[100px] h-[76px] sm:w-[110px] sm:h-[80px] rounded-lg border cursor-pointer relative overflow-hidden transition-all shrink-0 group flex flex-col justify-between p-2 ${
                       isActive
                         ? 'border-accent-blue ring-2 ring-blue-500/40 shadow-lg bg-surface-elevated'
                         : 'border-border-default hover:border-text-secondary opacity-80 hover:opacity-100 bg-surface'
@@ -578,7 +579,7 @@ export default function AppMain() {
 
               {/* + Add Master Layout Button */}
               <button
-                className="w-[110px] h-[85px] rounded-lg border-2 border-dashed border-border-default hover:border-accent-blue bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center justify-center gap-1 shrink-0 transition-all"
+                className="w-[100px] h-[76px] sm:w-[110px] sm:h-[80px] rounded-lg border-2 border-dashed border-border-default hover:border-accent-blue bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center justify-center gap-1 shrink-0 transition-all"
                 onClick={() => {
                   if (activeTemplateId) addMasterLayout(activeTemplateId, 'content', 'Content Master Layout');
                 }}
@@ -588,7 +589,7 @@ export default function AppMain() {
               </button>
             </div>
           ) : (
-            <div className="h-[105px] bg-surface border-t border-border-default flex items-center px-4 gap-3 overflow-x-auto z-20">
+            <div className="h-[92px] sm:h-[96px] bg-surface border-t border-border-default flex items-center px-3 sm:px-4 gap-2.5 sm:gap-3 overflow-x-auto z-20 shrink-0 select-none">
               {activeDoc?.slides.map((slide, idx) => {
                 const isActive = slide.id === activeSlideId;
 
@@ -608,7 +609,7 @@ export default function AppMain() {
                       }
                       setDraggedSlideId(null);
                     }}
-                    className={`w-[70px] h-[85px] rounded-lg border cursor-pointer relative overflow-hidden transition-all shrink-0 group flex flex-col ${
+                    className={`w-[64px] h-[76px] sm:w-[70px] sm:h-[80px] rounded-lg border cursor-pointer relative overflow-hidden transition-all shrink-0 group flex flex-col ${
                       isActive
                         ? 'border-accent-blue ring-2 ring-blue-500/40 shadow-lg'
                         : 'border-border-default hover:border-text-secondary opacity-80 hover:opacity-100'
@@ -655,11 +656,11 @@ export default function AppMain() {
 
               {/* Active Slide Layout Switcher Dropdown */}
               {activeSlide && (
-                <div className="flex items-center gap-1.5 bg-surface-elevated border border-border-default rounded-lg px-3 py-2 ml-auto shrink-0 shadow-md">
+                <div className="hidden sm:flex items-center gap-1.5 bg-surface-elevated border border-border-default rounded-lg px-2.5 py-1.5 ml-auto shrink-0 shadow-md">
                   <LayoutTemplate className="w-3.5 h-3.5 text-accent-blue" />
-                  <span className="text-[10px] font-semibold text-text-secondary uppercase">Change Layout:</span>
+                  <span className="text-[9px] font-semibold text-text-secondary uppercase">Layout:</span>
                   <select
-                    className="bg-transparent text-xs text-white outline-none font-semibold cursor-pointer max-w-[160px] truncate"
+                    className="bg-transparent text-xs text-white outline-none font-semibold cursor-pointer max-w-[140px] truncate"
                     value={activeSlide.masterLayoutId || ''}
                     onChange={(e) => {
                       if (activeSlideId && e.target.value) {
@@ -679,7 +680,7 @@ export default function AppMain() {
 
               {/* + Add Slide Button */}
               <button
-                className="w-[70px] h-[85px] rounded-lg border-2 border-dashed border-border-default hover:border-accent-blue bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center justify-center gap-1 shrink-0 transition-all"
+                className="w-[64px] h-[76px] sm:w-[70px] sm:h-[80px] rounded-lg border-2 border-dashed border-border-default hover:border-accent-blue bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center justify-center gap-1 shrink-0 transition-all ml-1 sm:ml-0"
                 onClick={() => setShowLayoutPicker(true)}
               >
                 <Plus className="w-4 h-4 text-accent-blue" />
@@ -687,6 +688,7 @@ export default function AppMain() {
               </button>
             </div>
           )}
+
         </main>
       )}
 
