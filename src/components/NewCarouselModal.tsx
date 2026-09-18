@@ -226,16 +226,23 @@ function delay(ms: number) {
 }
 
 async function fetchAICopy(topic: string, slideCount: number, templateId: string) {
-  const res = await fetch('/api/ai/pipeline', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      idempotencyKey: `${Date.now()}-${Math.random()}`,
-      topic,
-      slideCount,
-      templateId,
-    }),
-  });
-  if (!res.ok) throw new Error(`AI pipeline failed (${res.status})`);
-  return res.json();
+  try {
+    const res = await fetch('/api/ai/pipeline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        idempotencyKey: `${Date.now()}-${Math.random()}`,
+        topic,
+        slideCount,
+        templateId,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `AI generation returned status ${res.status}`);
+    }
+    return res.json();
+  } catch (err: any) {
+    throw new Error(err.message || 'Failed to connect to AI service. Please verify dev server is running.');
+  }
 }

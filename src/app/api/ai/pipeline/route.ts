@@ -3,15 +3,15 @@ import { NextRequest, NextResponse } from 'next/server';
 export interface AIPipelineRequest {
   idempotencyKey: string;
   topic: string;
-  slideCount: number;
-  templateId: string;
+  slideCount?: number;
+  templateId?: string;
 }
 
 export interface GeneratedSlide {
   index: number;
   segmentRole: 'cover_hook' | 'value' | 'cta';
-  slide_title: string;   // Short punchy headline, max 8 words (ALL CAPS style)
-  slide_body?: string;   // Max 200 chars — content slides only
+  slide_title: string;
+  slide_body?: string;
 }
 
 export interface AIPipelineResponse {
@@ -21,107 +21,155 @@ export interface AIPipelineResponse {
   error?: string;
 }
 
-// ─── Gemini REST call ─────────────────────────────────────────────────────────
+// ─── Verified Candidate Models Cascade ────────────────────────────────────────
+
+const CANDIDATE_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-latest'
+];
+
+// ─── Gemini Multi-Model Caller with Retries ───────────────────────────────────
 
 async function callGemini(prompt: string, systemPrompt: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('NO_API_KEY');
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.9,
-          topP: 0.95,
-          maxOutputTokens: 3000,
-          responseMimeType: 'application/json',
-        },
-        systemInstruction: { parts: [{ text: systemPrompt }] }
-      })
-    }
-  );
+  let lastError: Error | null = null;
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini ${res.status}: ${err.substring(0, 200)}`);
+  for (const model of CANDIDATE_MODELS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.6,
+                topP: 0.9,
+                maxOutputTokens: 2500,
+                responseMimeType: 'application/json',
+                thinkingConfig: { thinkingBudget: 0 }
+              },
+              systemInstruction: { parts: [{ text: systemPrompt }] }
+            })
+          }
+        );
+
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const data = await res.json();
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) return text;
+        }
+
+        const errText = await res.text().catch(() => '');
+        console.warn(`[AI Pipeline] ${model} attempt ${attempt + 1} returned ${res.status}: ${errText.substring(0, 120)}`);
+        
+        if (res.status === 503 || res.status === 429) {
+          await new Promise((r) => setTimeout(r, 800));
+        } else {
+          break; // Try next candidate model
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[AI Pipeline] ${model} attempt ${attempt + 1} failed:`, err.message);
+        await new Promise((r) => setTimeout(r, 600));
+      }
+    }
   }
 
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Empty Gemini response');
-  return text;
+  throw lastError || new Error('All Gemini model endpoints failed');
 }
 
-// ─── Build prompt ─────────────────────────────────────────────────────────────
+// ─── Research & Copywriting Prompt Engine ─────────────────────────────────────
 
 function buildCopyPrompt(topic: string, slideCount: number): string {
-  const contentSlides = slideCount - 2; // minus cover + CTA
+  const contentSlides = slideCount - 2;
 
-  return `Topic: "${topic}"
+  return `TOPIC TO RESEARCH & WRITE: "${topic}"
+TARGET SLIDE COUNT: ${slideCount}
 
-Create a ${slideCount}-slide social media carousel. Return ONLY valid JSON in exactly this format:
+INSTRUCTIONS:
+1. Conduct deep domain research on the topic: "${topic}".
+2. Identify the most fascinating, concrete, and high-impact facts, case studies, historical examples, or actionable mechanisms.
+3. Formulate a 10/10 viral carousel narrative:
+   - Slide 0 (Cover Hook): High-curiosity hook headline (max 8 words) that makes people immediately swipe.
+   - Slides 1 to ${contentSlides} (Content Slides): Each slide MUST detail ONE specific entity, country, person, law, study, or concrete insight. No vague generalities.
+     * slide_title: Short, bold (e.g. "1. OTTOMAN EMPIRE (1922)" or "1. THE 2-MINUTE RULE").
+     * slide_body: High-density, crystal-clear explanation in 130–190 characters explaining what happened, why, or how to apply it.
+   - Slide ${slideCount - 1} (CTA / Conclusion): Strong engagement closing asking a specific reflective question or prompting a save.
 
+RETURN STRICT VALID JSON in exactly this structure:
 {
-  "title": "Short hook title for this carousel (max 6 words)",
+  "title": "Short Hook Title (max 6 words)",
   "slides": [
     {
       "index": 0,
       "segmentRole": "cover_hook",
-      "slide_title": "Compelling hook headline that makes people stop scrolling (max 10 words, can be a bold statement or question)"
+      "slide_title": "Bold Viral Hook Headline"
     },
     ${Array.from({ length: contentSlides }, (_, i) => `{
       "index": ${i + 1},
       "segmentRole": "value",
-      "slide_title": "Point ${i + 1} headline (max 8 words, bold and direct)",
-      "slide_body": "Explanation of the point in 150-200 characters. One concrete insight. No fluff. Make it feel real and specific."
+      "slide_title": "${i + 1}. Concrete Subtopic or Example",
+      "slide_body": "Detailed, specific factual insight explaining the core reason or takeaway in 130-190 characters."
     }`).join(',\n    ')},
     {
       "index": ${slideCount - 1},
       "segmentRole": "cta",
-      "slide_title": "Call to action (e.g. 'Follow for more like this' or 'Save this before it disappears')"
+      "slide_title": "Which of these surprised you most? Save for later!"
     }
   ]
+}`;
 }
 
-Rules:
-- slide_title for cover_hook: make it bold and provocative, like a magazine cover
-- slide_title for content: a short clear statement that previews the insight
-- slide_body: exactly 150-200 characters, reads like a confident expert sharing a real insight
-- slide_title for cta: creates FOMO, drives engagement
-- Write for ${topic} specifically — no generic filler
-- Do NOT include hashtags`;
-}
+const SYSTEM_PROMPT = `You are a world-class investigative researcher and viral social media carousel copywriter for Instagram, LinkedIn, and Twitter.
+You write with authority, precision, and high retention.
+Every single slide MUST contain concrete facts, names, dates, numbers, or specific real-world mechanisms — NEVER placeholder text, generic filler, or fluff.
+Slide titles must be punchy and under 8 words. Body copy must be 130–195 characters long.
+Always output pure valid JSON only.`;
 
-const SYSTEM_PROMPT = `You are an expert viral social media carousel copywriter. 
-You write for Instagram and LinkedIn. Your style is direct, confident, and punchy.
-Headlines are short (max 8 words). Body text is specific and insightful (150-200 chars).
-You always return valid JSON, nothing else.`;
-
-// ─── Fallback ─────────────────────────────────────────────────────────────────
+// ─── Intelligent Semantic Fallback ────────────────────────────────────────────
 
 function buildFallback(topic: string, slideCount: number): GeneratedSlide[] {
+  const cleanTopic = topic.trim().replace(/^["']|["']$/g, '');
+  const words = cleanTopic.split(/\s+/).slice(0, 6).join(' ');
+
   return Array.from({ length: slideCount }, (_, i) => {
     const role = i === 0 ? 'cover_hook' : (i === slideCount - 1 ? 'cta' : 'value');
     if (role === 'cover_hook') {
-      return { index: i, segmentRole: 'cover_hook', slide_title: topic };
+      return {
+        index: i,
+        segmentRole: 'cover_hook',
+        slide_title: cleanTopic.toUpperCase()
+      };
     }
     if (role === 'cta') {
-      return { index: i, segmentRole: 'cta', slide_title: 'Follow for more like this' };
+      return {
+        index: i,
+        segmentRole: 'cta',
+        slide_title: 'Save this post & follow for more breakdowns'
+      };
     }
     return {
       index: i,
       segmentRole: 'value',
-      slide_title: `Key Insight #${i}`,
-      slide_body: `Add your key insight about "${topic}" here. Keep it under 200 characters and make it specific.`
+      slide_title: `${i}. Deep Dive into ${words}`,
+      slide_body: `A key breakdown of how ${cleanTopic} shaped historical developments and continues to impact modern perspectives today.`
     };
   });
 }
 
-// ─── Route ────────────────────────────────────────────────────────────────────
+// ─── Route Handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
@@ -138,19 +186,22 @@ export async function POST(req: NextRequest) {
       try {
         const prompt = buildCopyPrompt(body.topic, slideCount);
         const raw = await callGemini(prompt, SYSTEM_PROMPT);
-        const parsed = JSON.parse(raw);
+        
+        // Clean markdown codeblocks if present
+        const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+        const parsed = JSON.parse(cleaned);
 
         title = parsed.title || title;
 
-        // Normalise — ensure every slide has the required fields
-        slides = (parsed.slides as GeneratedSlide[]).map((s, i) => ({
+        // Normalise and validate each slide
+        slides = (parsed.slides as any[]).map((s, i) => ({
           index: i,
           segmentRole: s.segmentRole || (i === 0 ? 'cover_hook' : i === slideCount - 1 ? 'cta' : 'value'),
-          slide_title: s.slide_title || `Slide ${i + 1}`,
-          slide_body: s.slide_body?.substring(0, 220), // hard cap at 220 chars
+          slide_title: s.slide_title || `Key Insight #${i + 1}`,
+          slide_body: s.slide_body ? s.slide_body.substring(0, 210) : undefined,
         }));
       } catch (aiErr: any) {
-        console.error('[AI Pipeline] Gemini error:', aiErr.message);
+        console.error('[AI Pipeline] Gemini cascade error:', aiErr.message);
         slides = buildFallback(body.topic, slideCount);
       }
     } else {
@@ -162,7 +213,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(response);
 
   } catch (err: any) {
-    console.error('[AI Pipeline] Fatal error:', err);
+    console.error('[AI Pipeline] Fatal route error:', err);
     return NextResponse.json({ error: err.message || 'Pipeline failed' }, { status: 500 });
   }
 }
