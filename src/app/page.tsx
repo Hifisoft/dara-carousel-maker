@@ -36,6 +36,7 @@ export default function AppMain() {
   const duplicateSlide = useCarouselStore((state) => state.duplicateSlide);
   const deleteSlide = useCarouselStore((state) => state.deleteSlide);
   const moveSlide = useCarouselStore((state) => state.moveSlide);
+  const generateSlideImage = useCarouselStore((state) => state.generateSlideImage);
 
   // Layer Mutators & Selection
   const selectedLayerId = useCarouselStore((state) => state.selectedLayerId);
@@ -592,6 +593,10 @@ export default function AppMain() {
             <div className="h-[92px] sm:h-[96px] bg-surface border-t border-border-default flex items-center px-3 sm:px-4 gap-2.5 sm:gap-3 overflow-x-auto z-20 shrink-0 select-none">
               {activeDoc?.slides.map((slide, idx) => {
                 const isActive = slide.id === activeSlideId;
+                const slideImgLayer = slide.layers.find(
+                  (l) => (l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))
+                );
+                const slideImgUrl = (slideImgLayer as any)?.assignedMediaUrl || (slideImgLayer as any)?.url || (slideImgLayer as any)?.localPreviewUrl;
 
                 return (
                   <div
@@ -617,12 +622,36 @@ export default function AppMain() {
                     style={{ backgroundColor: slide.backgroundColor || '#111' }}
                     onClick={() => setActiveSlideId(slide.id)}
                   >
-                    <span className="absolute top-1 left-1 bg-black/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded z-10">
+                    {/* Background Image Thumbnail Preview */}
+                    {slideImgUrl && (
+                      <img
+                        src={slideImgUrl}
+                        alt=""
+                        className="absolute inset-0 w-full h-full object-cover opacity-50 pointer-events-none"
+                      />
+                    )}
+
+                    <span className="absolute top-1 left-1 bg-black/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded z-10 backdrop-blur-xs">
                       #{idx + 1}
                     </span>
 
-                    {/* Actions Overlay (Duplicate & Delete) */}
+                    {/* Actions Overlay (Generate Image, Duplicate & Delete) */}
                     <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                      <button
+                        className="w-4 h-4 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center shadow"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          setActiveSlideId(slide.id);
+                          try {
+                            await generateSlideImage(slide.id);
+                          } catch (err) {
+                            console.error(err);
+                          }
+                        }}
+                        title="Generate AI Visual for Slide"
+                      >
+                        <Sparkles className="w-2.5 h-2.5 text-yellow-300" />
+                      </button>
                       <button
                         className="w-4 h-4 rounded-full bg-surface-elevated text-white flex items-center justify-center hover:bg-surface-hover"
                         onClick={(e) => {
@@ -647,8 +676,8 @@ export default function AppMain() {
                       )}
                     </div>
 
-                    <div className="p-1 text-[7px] text-white/80 overflow-hidden h-full flex items-center justify-center text-center font-medium leading-tight">
-                      {(slide.layers[0] as any)?.content || `Slide ${idx + 1}`}
+                    <div className="p-1 text-[7px] text-white/90 overflow-hidden h-full flex items-center justify-center text-center font-medium leading-tight relative z-10 drop-shadow-sm">
+                      {(slide.layers.find(l => l.type === 'text') as any)?.content || `Slide ${idx + 1}`}
                     </div>
                   </div>
                 );

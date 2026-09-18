@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
 import {
   LayerNode, TextLayerNode, ImageLayerNode, ShapeLayerNode, ShapeFill, LinearGradientFill,
@@ -9,6 +9,7 @@ import {
 import { hexOrColorToRgba } from '../lib/colorUtils';
 import { exportCarouselAsPNG, exportCarouselAsPDF, exportCarouselAsZip } from '../lib/export';
 import {
+  Loader2, CheckCircle2, Wand2,
   Layers as LayersIcon, Palette, Sparkles, Download, Eye, EyeOff, ArrowUp, ArrowDown,
   Trash2, Copy, RefreshCw, Image as ImageIcon, Save, Send, Plus, Minus, RotateCw,
   ChevronRight, ChevronDown, Folder, Lock, Unlock, Square, Type, Search, MoreHorizontal,
@@ -33,6 +34,10 @@ export function InspectorPanel() {
   ]);
   const [chatInput, setChatInput] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [imageStyle, setImageStyle] = useState('Cinematic Photography');
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imageSuccess, setImageSuccess] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<string | null>(null);
 
   // Layers Tree Local State
@@ -78,6 +83,8 @@ export function InspectorPanel() {
   const pasteLayers = useCarouselStore((state) => state.pasteLayers);
   const reorderLayer = useCarouselStore((state) => state.reorderLayer);
   const updateSlideBg = useCarouselStore((state) => state.updateSlideBg);
+  const generateSlideImage = useCarouselStore((state) => state.generateSlideImage);
+  const setSlideImageUrl = useCarouselStore((state) => state.setSlideImageUrl);
 
   const isTemplateEditorMode = useCarouselStore((state) => state.isTemplateEditorMode);
   const getActiveMasterLayout = useCarouselStore((state) => state.getActiveMasterLayout);
@@ -88,13 +95,63 @@ export function InspectorPanel() {
 
   const activeContainer = isTemplateEditorMode ? activeLayout : activeSlide;
 
+  // Synchronize visual prompt with current slide content
+  useEffect(() => {
+    if (!activeSlide) return;
+    const textLayers = activeSlide.layers.filter((l) => l.type === 'text') as TextLayerNode[];
+    const title = textLayers.find((l) => l.semanticRole === 'headline' || l.semanticRole === 'slide_title')?.content || '';
+    const body = textLayers.find((l) => l.semanticRole === 'body' || l.semanticRole === 'slide_body')?.content || '';
+
+    const imgLayer = activeSlide.layers.find((l) => l.type === 'image' && (l as any).prompt) as ImageLayerNode | undefined;
+    if (imgLayer?.prompt) {
+      setPromptText(imgLayer.prompt);
+    } else if (title || body) {
+      setPromptText(`High-contrast ${imageStyle} concept for ${title || 'key insight'}${body ? ': ' + body.substring(0, 90) : ''}`);
+    }
+  }, [activeSlide?.id]);
+
+  const handleTriggerImageGeneration = async (customPromptToUse?: string) => {
+    if (!activeSlide) return;
+    setIsGeneratingImage(true);
+    setImageError(null);
+    setImageSuccess(null);
+
+    try {
+      const p = customPromptToUse || promptText;
+      const res = await generateSlideImage(activeSlide.id, p, imageStyle);
+      if (res?.optimizedPrompt) {
+        setPromptText(res.optimizedPrompt);
+      }
+      setImageSuccess('Visual generated & applied!');
+      setTimeout(() => setImageSuccess(null), 3500);
+    } catch (err: any) {
+      console.error('Image generation error:', err);
+      setImageError(err.message || 'Failed to generate image. Please try again.');
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
+  const handleRemoveSlideImage = () => {
+    if (!activeSlide) return;
+    const slotLayer = activeSlide.layers.find((l) => l.type === 'image-slot');
+    if (slotLayer) {
+      updateLayerNode(slotLayer.id, { assignedMediaUrl: undefined, url: undefined } as any);
+      return;
+    }
+    const imgLayer = activeSlide.layers.find((l) => l.type === 'image');
+    if (imgLayer) {
+      removeLayerNode(imgLayer.id);
+    }
+  };
+
   const selectedLayer = activeContainer?.layers.find((l) => l.id === selectedLayerId);
 
 
   // Gradient Stop Local State Selection
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
 
-  const handleSendChatMessage = (textToSend?: string) => {
+  const handleSendChatMessage = async (textToSend?: string) => {
     const msg = textToSend || chatInput;
     if (!msg.trim()) return;
 
@@ -102,24 +159,57 @@ export function InspectorPanel() {
     if (!textToSend) setChatInput('');
     setIsAiLoading(true);
 
-    setTimeout(() => {
-      if (msg.toLowerCase().includes('bigger') && selectedLayer && selectedLayer.type === 'text') {
+    try {
+      const lower = msg.toLowerCase();
+      if (lower.includes('image') || lower.includes('photo') || lower.includes('visual') || lower.includes('generate') || lower.includes('render')) {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'ai',
+            text: `Synthesizing cinematic visual for: "${msg}"...`,
+            time: 'Just now'
+          }
+        ]);
+        await handleTriggerImageGeneration(msg);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'ai',
+            text: `Generated and applied new visual for slide #${(activeDoc?.slides.findIndex(s => s.id === activeSlideId) ?? 0) + 1}.`,
+            time: 'Just now'
+          }
+        ]);
+      } else if (lower.includes('bigger') && selectedLayer && selectedLayer.type === 'text') {
         const currentSize = (selectedLayer as TextLayerNode).fontSize || 40;
         updateLayerNode(selectedLayer.id, { fontSize: currentSize + 12 });
-      } else if (msg.toLowerCase().includes('red') || msg.toLowerCase().includes('color')) {
-        updateSlideBg('#990000');
+        setChatMessages((prev) => [...prev, { sender: 'ai', text: `Increased font size for selected text.`, time: 'Just now' }]);
+      } else if (lower.includes('color') || lower.includes('dark') || lower.includes('light')) {
+        const bg = lower.includes('light') || lower.includes('white') ? '#f8fafc' : '#0a0a0c';
+        updateSlideBg(bg);
+        setChatMessages((prev) => [...prev, { sender: 'ai', text: `Updated slide background to match requested palette.`, time: 'Just now' }]);
+      } else {
+        setPromptText(msg);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            sender: 'ai',
+            text: `Updated visual concept prompt. Click "Generate Slide Image" to render.`,
+            time: 'Just now'
+          }
+        ]);
       }
-
+    } catch (e: any) {
       setChatMessages((prev) => [
         ...prev,
         {
           sender: 'ai',
-          text: `Applied visual refinement for: "${msg}". Canvas updated live.`,
+          text: `Error refining visual: ${e.message}`,
           time: 'Just now'
         }
       ]);
+    } finally {
       setIsAiLoading(false);
-    }, 600);
+    }
   };
 
   const handleExport = async (format: 'png' | 'pdf' | 'zip') => {
@@ -525,9 +615,26 @@ export function InspectorPanel() {
 
                   return (
                     <div className="space-y-3 pt-2 border-t border-border-subtle">
-                      <div className="text-[11px] font-bold uppercase text-accent-blue tracking-wider">
-                        Image Slot & Focal Crop Controls
+                      <div className="text-[11px] font-bold uppercase text-accent-blue tracking-wider flex items-center justify-between">
+                        <span>Image Slot & Focal Controls</span>
                       </div>
+                      <button
+                        className="w-full py-2 bg-gradient-to-r from-purple-600 to-accent-blue hover:opacity-95 text-white text-xs font-semibold rounded flex items-center justify-center gap-1.5 shadow transition-all disabled:opacity-50"
+                        onClick={() => handleTriggerImageGeneration()}
+                        disabled={isGeneratingImage}
+                      >
+                        {isGeneratingImage ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Generating Image...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Generate Image with AI</span>
+                          </>
+                        )}
+                      </button>
 
                       {!isSlot ? (
                         <button
@@ -702,6 +809,23 @@ export function InspectorPanel() {
                 {/* IMAGE LAYER CONTROLS */}
                 {selectedLayer.type === 'image' && (
                   <div className="space-y-3">
+                    <button
+                      className="w-full py-2 bg-gradient-to-r from-purple-600 to-accent-blue hover:opacity-95 text-white text-xs font-semibold rounded flex items-center justify-center gap-1.5 shadow transition-all disabled:opacity-50"
+                      onClick={() => handleTriggerImageGeneration()}
+                      disabled={isGeneratingImage}
+                    >
+                      {isGeneratingImage ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Generating Image...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Generate Image with AI</span>
+                        </>
+                      )}
+                    </button>
                     <div>
                       <label className="block text-[11px] font-semibold text-text-secondary uppercase mb-1">
                         Image Asset URL
@@ -1149,76 +1273,227 @@ export function InspectorPanel() {
         )}
 
         {/* CREATIVE AI TAB */}
-        {activeTab === 'ai' && (
-          <div className="space-y-5">
-            <div className="bg-surface-elevated rounded-lg border border-border-default p-3 space-y-2.5">
-              <span className="text-[10px] font-bold text-accent-blue tracking-wider uppercase block">
-                SLIDE PROMPT (GENERATED BY AI)
-              </span>
-              <textarea
-                className="w-full bg-surface border border-border-default rounded p-2.5 text-xs text-white placeholder-text-tertiary focus:border-border-focus outline-none resize-none leading-relaxed"
-                rows={4}
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-              />
-              <div className="grid grid-cols-2 gap-1.5 pt-1">
-                <button
-                  className="py-1.5 px-2 bg-surface hover:bg-surface-hover border border-border-default text-text-secondary hover:text-white rounded text-[11px] font-medium flex items-center justify-center gap-1"
-                  onClick={() => navigator.clipboard.writeText(promptText)}
-                >
-                  <Copy className="w-3 h-3" />
-                  Copy Prompt
-                </button>
-                <button
-                  className="py-1.5 px-2 bg-surface hover:bg-surface-hover border border-border-default text-text-secondary hover:text-white rounded text-[11px] font-medium flex items-center justify-center gap-1"
-                  onClick={() => setPromptText("Regenerated visual concept: Bold dynamic typography with neon accents.")}
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  Regenerate
-                </button>
-              </div>
-            </div>
+        {activeTab === 'ai' && (() => {
+          const slideIdx = activeDoc?.slides.findIndex(s => s.id === activeSlideId) ?? 0;
+          const existingImgLayer = activeSlide?.layers.find(
+            (l) => (l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))
+          );
+          const existingImgUrl = (existingImgLayer as any)?.assignedMediaUrl || (existingImgLayer as any)?.url || (existingImgLayer as any)?.localPreviewUrl;
 
-            <div className="bg-surface-elevated rounded-lg border border-border-default p-3 space-y-3">
-              <span className="text-[10px] font-bold text-text-secondary tracking-wider uppercase block">
-                REFINE VISUALS VIA CHAT
-              </span>
-              <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
-                {chatMessages.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`p-2.5 rounded text-xs leading-normal ${
-                      msg.sender === 'user'
-                        ? 'bg-blue-600/20 border border-blue-500/30 text-white ml-4'
-                        : 'bg-surface border border-border-subtle text-text-secondary mr-4'
-                    }`}
-                  >
-                    <div className="font-semibold text-[10px] mb-0.5 text-text-tertiary uppercase">
-                      {msg.sender === 'user' ? 'You' : 'Creative AI Director'}
-                    </div>
-                    {msg.text}
+          const styles = [
+            'Cinematic Photography',
+            'Moody Dark',
+            'Minimalist 3D',
+            'Editorial Vintage',
+            'Cyberpunk Neon',
+            'Abstract 3D'
+          ];
+
+          return (
+            <div className="space-y-4">
+              {/* Slide Art Direction Card */}
+              <div className="bg-surface-elevated rounded-lg border border-border-default p-3.5 space-y-3 shadow-md">
+                <div className="flex items-center justify-between pb-1 border-b border-border-subtle">
+                  <span className="text-[11px] font-bold text-accent-blue tracking-wider uppercase flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Slide #{slideIdx + 1} Visual Art Direction
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono font-semibold">
+                    {imageStyle}
+                  </span>
+                </div>
+
+                {/* Visual Style Selector */}
+                <div>
+                  <label className="block text-[10px] font-semibold text-text-secondary uppercase mb-1.5">
+                    Visual Aesthetic
+                  </label>
+                  <div className="grid grid-cols-2 gap-1">
+                    {styles.map((s) => (
+                      <button
+                        key={s}
+                        className={`px-2 py-1.5 rounded text-[10px] font-medium text-left truncate transition-colors ${
+                          imageStyle === s
+                            ? 'bg-accent-blue text-white font-semibold shadow-sm'
+                            : 'bg-surface hover:bg-surface-hover text-text-secondary hover:text-white border border-border-subtle'
+                        }`}
+                        onClick={() => {
+                          setImageStyle(s);
+                          setPromptText(`${s} visual for ${promptText.replace(/^(Cinematic Photography|Moody Dark|Minimalist 3D|Editorial Vintage|Cyberpunk Neon|Abstract 3D) concept for /i, '')}`);
+                        }}
+                      >
+                        {s}
+                      </button>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="flex gap-1.5 pt-1">
-                <input
-                  type="text"
-                  className="flex-1 bg-surface border border-border-default rounded px-2.5 py-1.5 text-xs text-white placeholder-text-tertiary outline-none focus:border-border-focus"
-                  placeholder="Ask AI to edit canvas..."
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendChatMessage()}
-                />
+                </div>
+
+                {/* Prompt Textarea */}
+                <div>
+                  <label className="block text-[10px] font-semibold text-text-secondary uppercase mb-1">
+                    Image Prompt
+                  </label>
+                  <textarea
+                    className="w-full bg-surface border border-border-default rounded p-2.5 text-xs text-white placeholder-text-tertiary focus:border-border-focus outline-none resize-none leading-relaxed"
+                    rows={4}
+                    value={promptText}
+                    onChange={(e) => setPromptText(e.target.value)}
+                    placeholder="Describe the image you want to generate..."
+                    disabled={isGeneratingImage}
+                  />
+                </div>
+
+                {/* Success / Error Messages */}
+                {imageError && (
+                  <div className="p-2.5 bg-red-950/60 border border-red-800/80 rounded text-[11px] text-red-400 leading-tight">
+                    {imageError}
+                  </div>
+                )}
+                {imageSuccess && (
+                  <div className="p-2 bg-emerald-950/60 border border-emerald-800/80 rounded text-[11px] text-emerald-300 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>{imageSuccess}</span>
+                  </div>
+                )}
+
+                {/* Primary Generate Trigger Button */}
                 <button
-                  className="px-3 bg-accent-blue text-white rounded hover:bg-blue-600 flex items-center justify-center"
-                  onClick={() => handleSendChatMessage()}
+                  className="w-full py-2.5 px-3 bg-gradient-to-r from-purple-600 via-accent-blue to-cyan-500 hover:opacity-95 text-white text-xs font-bold rounded-md flex items-center justify-center gap-2 shadow-lg transition-all disabled:opacity-50 cursor-pointer"
+                  onClick={() => handleTriggerImageGeneration()}
+                  disabled={isGeneratingImage || !activeSlide}
                 >
-                  <Send className="w-3.5 h-3.5" />
+                  {isGeneratingImage ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Generating Slide #{slideIdx + 1} Image...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-yellow-300" />
+                      <span>Generate Slide #{slideIdx + 1} Image</span>
+                    </>
+                  )}
                 </button>
+
+                {/* Action Secondary Buttons */}
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                  <button
+                    className="py-1.5 px-2 bg-surface hover:bg-surface-hover border border-border-default text-text-secondary hover:text-white rounded text-[11px] font-medium flex items-center justify-center gap-1"
+                    onClick={() => {
+                      navigator.clipboard.writeText(promptText);
+                      setImageSuccess('Prompt copied to clipboard!');
+                      setTimeout(() => setImageSuccess(null), 2500);
+                    }}
+                  >
+                    <Copy className="w-3 h-3" />
+                    Copy Prompt
+                  </button>
+                  <button
+                    className="py-1.5 px-2 bg-surface hover:bg-surface-hover border border-border-default text-text-secondary hover:text-white rounded text-[11px] font-medium flex items-center justify-center gap-1 disabled:opacity-50"
+                    onClick={async () => {
+                      if (!activeSlide) return;
+                      const textLayers = activeSlide.layers.filter((l) => l.type === 'text') as TextLayerNode[];
+                      const title = textLayers.find((l) => l.semanticRole === 'headline' || l.semanticRole === 'slide_title')?.content || '';
+                      const body = textLayers.find((l) => l.semanticRole === 'body' || l.semanticRole === 'slide_body')?.content || '';
+                      const seed = Math.floor(Math.random() * 1000);
+                      const fresh = `${imageStyle} concept #${seed} depicting ${title || 'key idea'}${body ? ' - ' + body.substring(0, 80) : ''}`;
+                      setPromptText(fresh);
+                      await handleTriggerImageGeneration(fresh);
+                    }}
+                    disabled={isGeneratingImage}
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Regenerate
+                  </button>
+                </div>
+              </div>
+
+              {/* Current Image Preview & Manage Card */}
+              {existingImgUrl && (
+                <div className="bg-surface-elevated rounded-lg border border-border-default p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-text-secondary uppercase">
+                      Current Slide Visual
+                    </span>
+                    <span className="text-[9px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Active
+                    </span>
+                  </div>
+                  <div className="relative rounded overflow-hidden aspect-[4/3] bg-black border border-border-subtle group">
+                    <img
+                      src={existingImgUrl}
+                      alt="Slide Visual"
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                      <button
+                        className="px-2.5 py-1 bg-accent-blue text-white rounded text-[10px] font-semibold flex items-center gap-1 shadow"
+                        onClick={() => handleTriggerImageGeneration()}
+                        disabled={isGeneratingImage}
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        Regenerate
+                      </button>
+                      <button
+                        className="px-2.5 py-1 bg-red-600 text-white rounded text-[10px] font-semibold flex items-center gap-1 shadow"
+                        onClick={() => handleRemoveSlideImage()}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Refine Visuals via Chat */}
+              <div className="bg-surface-elevated rounded-lg border border-border-default p-3 space-y-3">
+                <span className="text-[10px] font-bold text-text-secondary tracking-wider uppercase block">
+                  REFINE VISUALS VIA CHAT
+                </span>
+                <div className="space-y-2.5 max-h-[200px] overflow-y-auto pr-1">
+                  {chatMessages.map((msg, i) => (
+                    <div
+                      key={i}
+                      className={`p-2.5 rounded text-xs leading-normal ${
+                        msg.sender === 'user'
+                          ? 'bg-blue-600/20 border border-blue-500/30 text-white ml-4'
+                          : 'bg-surface border border-border-subtle text-text-secondary mr-4'
+                      }`}
+                    >
+                      <div className="font-semibold text-[10px] mb-0.5 text-text-tertiary uppercase">
+                        {msg.sender === 'user' ? 'You' : 'Creative AI Director'}
+                      </div>
+                      {msg.text}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-1.5 pt-1">
+                  <input
+                    type="text"
+                    className="flex-1 bg-surface border border-border-default rounded px-2.5 py-1.5 text-xs text-white placeholder-text-tertiary outline-none focus:border-border-focus"
+                    placeholder="e.g. Generate image of Sartre in Paris..."
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSendChatMessage()}
+                    disabled={isGeneratingImage || isAiLoading}
+                  />
+                  <button
+                    className="px-3 bg-accent-blue text-white rounded hover:bg-blue-600 flex items-center justify-center disabled:opacity-50"
+                    onClick={() => handleSendChatMessage()}
+                    disabled={isGeneratingImage || isAiLoading || !chatInput.trim()}
+                  >
+                    {isGeneratingImage || isAiLoading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* LAYERS TAB (FIGMA-GRADE DOCUMENT HIERARCHY SYSTEM) */}
         {activeTab === 'layers' && (

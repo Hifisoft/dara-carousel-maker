@@ -115,7 +115,7 @@ function ImageSlotNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd 
   onTransformEnd: (e: any) => void;
 }) {
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(null);
-  const mediaUrl = layer.assignedMediaUrl || (layer as any).sampleMediaUrl;
+  const mediaUrl = layer.assignedMediaUrl || layer.url || layer.fallbackUrl || (layer as any).sampleMediaUrl;
 
   useEffect(() => {
     if (!mediaUrl) {
@@ -123,8 +123,13 @@ function ImageSlotNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd 
       return;
     }
     const img = new window.Image();
-    img.crossOrigin = 'Anonymous';
+    if (!mediaUrl.startsWith('data:')) {
+      img.crossOrigin = 'Anonymous';
+    }
     img.onload = () => setImageObj(img);
+    img.onerror = () => {
+      console.warn('Failed to load image slot URL:', mediaUrl);
+    };
     img.src = mediaUrl;
   }, [mediaUrl]);
 

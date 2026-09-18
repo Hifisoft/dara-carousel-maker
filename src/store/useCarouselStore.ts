@@ -125,6 +125,8 @@ interface CarouselState {
   deleteSlide: (slideId: string) => void;
   moveSlide: (slideId: string, fromIndex: number, toIndex: number) => void;
   updateSlideBg: (color: string) => void;
+  setSlideImageUrl: (slideId: string, url: string, prompt?: string) => void;
+  generateSlideImage: (slideId: string, customPrompt?: string, style?: string) => Promise<any>;
 
   // Selection Mutators
   setSelectedLayerId: (id: string | null) => void;
@@ -2556,6 +2558,99 @@ export const useCarouselStore = create<CarouselState>()(
         save();
       }
     }),
+
+    setSlideImageUrl: (slideId, url, prompt) => set((state) => {
+      const doc = state.documents.find((d) => d.id === state.activeDocumentId);
+      const slide = doc?.slides.find((s) => s.id === slideId);
+      if (!slide || !doc) return;
+
+      pushHistorySnapshot(get(), state, 'SET_SLIDE_IMAGE');
+
+      // 1. If an image-slot exists on this slide, assign to it
+      const slotLayer = slide.layers.find((l) => l.type === 'image-slot') as ImageSlotLayerNode | undefined;
+      if (slotLayer) {
+        slotLayer.assignedMediaUrl = url;
+        slotLayer.url = url;
+        slotLayer.fallbackUrl = url;
+        persistActiveDocument(doc);
+        return;
+      }
+
+      // 2. If an image layer exists, update it
+      const imgLayer = slide.layers.find((l) => l.type === 'image') as ImageLayerNode | undefined;
+      if (imgLayer) {
+        imgLayer.url = url;
+        imgLayer.localPreviewUrl = url;
+        imgLayer.status = 'ready';
+        if (prompt) imgLayer.prompt = prompt;
+        persistActiveDocument(doc);
+        return;
+      }
+
+      // 3. Otherwise, insert a hero image layer
+      const newImgLayer: ImageLayerNode = {
+        id: 'img-' + Date.now(),
+        name: 'AI Generated Visual',
+        type: 'image',
+        semanticRole: 'hero_image',
+        url: url,
+        localPreviewUrl: url,
+        prompt: prompt,
+        status: 'ready',
+        x: 60,
+        y: 120,
+        width: 960,
+        height: 680,
+        rotation: 0,
+        opacity: 1,
+        isLocked: false,
+        isVisible: true,
+        zIndex: 0,
+        borderRadius: 16
+      };
+      slide.layers.unshift(newImgLayer);
+      persistActiveDocument(doc);
+    }),
+
+    generateSlideImage: async (slideId, customPrompt, style) => {
+      const state = get();
+      const doc = state.documents.find((d) => d.id === state.activeDocumentId);
+      const slide = doc?.slides.find((s) => s.id === slideId);
+      if (!slide || !doc) throw new Error('Slide not found');
+
+      const textLayers = slide.layers.filter((l) => l.type === 'text') as TextLayerNode[];
+      const titleLayer = textLayers.find((l) => l.semanticRole === 'headline' || l.semanticRole === 'slide_title') || textLayers[0];
+      const bodyLayer = textLayers.find((l) => l.semanticRole === 'body' || l.semanticRole === 'slide_body') || textLayers[1];
+
+      const slideTitle = titleLayer?.content || `Slide #${doc.slides.findIndex((s) => s.id === slideId) + 1}`;
+      const slideBody = bodyLayer?.content || '';
+
+      const res = await fetch('/api/ai/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slideId,
+          topic: doc.topic || doc.title,
+          slideTitle,
+          slideBody,
+          customPrompt,
+          style: style || 'Cinematic Photography'
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Image generation failed (${res.status})`);
+      }
+
+      const data = await res.json();
+      if (data.success && data.imageUrl) {
+        get().setSlideImageUrl(slideId, data.imageUrl, data.optimizedPrompt);
+        return data;
+      } else {
+        throw new Error(data.error || 'Failed to generate image');
+      }
+    },
 
     // SELECTION MUTATORS
     setSelectedLayerId: (id) => set((state) => {
