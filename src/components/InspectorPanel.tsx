@@ -95,20 +95,50 @@ export function InspectorPanel() {
 
   const activeContainer = isTemplateEditorMode ? activeLayout : activeSlide;
 
+  const isLogo = (l: LayerNode) =>
+    l.type === 'logo' ||
+    l.semanticRole === 'logo' ||
+    l.semanticRole === 'brand_logo' ||
+    l.semanticRole === 'author_avatar' ||
+    (l.name && l.name.toLowerCase().includes('logo')) ||
+    l.id.toLowerCase().includes('logo');
+
   // Synchronize visual prompt with current slide content
   useEffect(() => {
     if (!activeSlide) return;
-    const textLayers = activeSlide.layers.filter((l) => l.type === 'text') as TextLayerNode[];
-    const title = textLayers.find((l) => l.semanticRole === 'headline' || l.semanticRole === 'slide_title')?.content || '';
-    const body = textLayers.find((l) => l.semanticRole === 'body' || l.semanticRole === 'slide_body')?.content || '';
 
-    const imgLayer = activeSlide.layers.find((l) => l.type === 'image' && (l as any).prompt) as ImageLayerNode | undefined;
-    if (imgLayer?.prompt) {
-      setPromptText(imgLayer.prompt);
-    } else if (title || body) {
-      setPromptText(`High-contrast ${imageStyle} concept for ${title || 'key insight'}${body ? ': ' + body.substring(0, 90) : ''}`);
+    // 1. Check if an existing hero image/slot has a prompt
+    const existingHero = activeSlide.layers.find(
+      (l) => (l.type === 'image' || l.type === 'image-slot') && !isLogo(l) && (l as any).prompt
+    );
+    if ((existingHero as any)?.prompt) {
+      setPromptText((existingHero as any).prompt);
+      return;
     }
-  }, [activeSlide?.id]);
+
+    // 2. Rank text layers by font size (largest = title, secondary = body)
+    const textLayers = activeSlide.layers.filter((l) => l.type === 'text' && (l as TextLayerNode).content?.trim()) as TextLayerNode[];
+    const sortedByFontSize = [...textLayers].sort((a, b) => (b.fontSize || 0) - (a.fontSize || 0));
+
+    const title = textLayers.find((l) => l.semanticRole === 'headline' || l.semanticRole === 'slide_title' || l.semanticRole === 'title')?.content
+      || sortedByFontSize[0]?.content
+      || activeDoc?.topic
+      || activeDoc?.title
+      || '';
+
+    const body = textLayers.find((l) => l.semanticRole === 'body' || l.semanticRole === 'slide_body' || l.semanticRole === 'subtitle')?.content
+      || sortedByFontSize[1]?.content
+      || '';
+
+    const cleanTitle = title.replace(/^\d+[\.\-\)]\s*/, '').trim();
+    const cleanBody = body.substring(0, 100).trim();
+
+    if (cleanTitle || cleanBody) {
+      setPromptText(`Cinematic ${imageStyle}: Dramatic conceptual visual representing "${cleanTitle || cleanBody}". Atmospheric lighting, 35mm lens, 4:5 vertical framing, photorealistic 8k`);
+    } else {
+      setPromptText(`Cinematic ${imageStyle}: Minimalist powerful visual concept for ${activeDoc?.topic || activeDoc?.title || 'social media insight'}, studio lighting, 8k`);
+    }
+  }, [activeSlide?.id, imageStyle]);
 
   const handleTriggerImageGeneration = async (customPromptToUse?: string) => {
     if (!activeSlide) return;
@@ -1276,7 +1306,7 @@ export function InspectorPanel() {
         {activeTab === 'ai' && (() => {
           const slideIdx = activeDoc?.slides.findIndex(s => s.id === activeSlideId) ?? 0;
           const existingImgLayer = activeSlide?.layers.find(
-            (l) => (l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))
+            (l) => ((l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))) && !isLogo(l)
           );
           const existingImgUrl = (existingImgLayer as any)?.assignedMediaUrl || (existingImgLayer as any)?.url || (existingImgLayer as any)?.localPreviewUrl;
 

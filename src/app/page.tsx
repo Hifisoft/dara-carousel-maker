@@ -593,8 +593,16 @@ export default function AppMain() {
             <div className="h-[92px] sm:h-[96px] bg-surface border-t border-border-default flex items-center px-3 sm:px-4 gap-2.5 sm:gap-3 overflow-x-auto z-20 shrink-0 select-none">
               {activeDoc?.slides.map((slide, idx) => {
                 const isActive = slide.id === activeSlideId;
+                const isLogo = (l: any) =>
+                  l.type === 'logo' ||
+                  l.semanticRole === 'logo' ||
+                  l.semanticRole === 'brand_logo' ||
+                  l.semanticRole === 'author_avatar' ||
+                  (l.name && l.name.toLowerCase().includes('logo')) ||
+                  (l.id && l.id.toLowerCase().includes('logo'));
+
                 const slideImgLayer = slide.layers.find(
-                  (l) => (l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))
+                  (l) => ((l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))) && !isLogo(l)
                 );
                 const slideImgUrl = (slideImgLayer as any)?.assignedMediaUrl || (slideImgLayer as any)?.url || (slideImgLayer as any)?.localPreviewUrl;
 

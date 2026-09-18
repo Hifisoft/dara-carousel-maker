@@ -2566,18 +2566,27 @@ export const useCarouselStore = create<CarouselState>()(
 
       pushHistorySnapshot(get(), state, 'SET_SLIDE_IMAGE');
 
-      // 1. If an image-slot exists on this slide, assign to it
-      const slotLayer = slide.layers.find((l) => l.type === 'image-slot') as ImageSlotLayerNode | undefined;
+      const isLogo = (l: LayerNode) =>
+        l.type === 'logo' ||
+        l.semanticRole === 'logo' ||
+        l.semanticRole === 'brand_logo' ||
+        l.semanticRole === 'author_avatar' ||
+        (l.name && l.name.toLowerCase().includes('logo')) ||
+        l.id.toLowerCase().includes('logo');
+
+      // 1. If an image-slot exists on this slide (and is NOT a logo), assign to it
+      const slotLayer = slide.layers.find((l) => l.type === 'image-slot' && !isLogo(l)) as ImageSlotLayerNode | undefined;
       if (slotLayer) {
         slotLayer.assignedMediaUrl = url;
         slotLayer.url = url;
         slotLayer.fallbackUrl = url;
+        if (prompt) (slotLayer as any).prompt = prompt;
         persistActiveDocument(doc);
         return;
       }
 
-      // 2. If an image layer exists, update it
-      const imgLayer = slide.layers.find((l) => l.type === 'image') as ImageLayerNode | undefined;
+      // 2. If an image layer exists (and is NOT a logo), update it
+      const imgLayer = slide.layers.find((l) => l.type === 'image' && !isLogo(l)) as ImageLayerNode | undefined;
       if (imgLayer) {
         imgLayer.url = url;
         imgLayer.localPreviewUrl = url;
@@ -2618,9 +2627,11 @@ export const useCarouselStore = create<CarouselState>()(
       const slide = doc?.slides.find((s) => s.id === slideId);
       if (!slide || !doc) throw new Error('Slide not found');
 
-      const textLayers = slide.layers.filter((l) => l.type === 'text') as TextLayerNode[];
-      const titleLayer = textLayers.find((l) => l.semanticRole === 'headline' || l.semanticRole === 'slide_title') || textLayers[0];
-      const bodyLayer = textLayers.find((l) => l.semanticRole === 'body' || l.semanticRole === 'slide_body') || textLayers[1];
+      const textLayers = slide.layers.filter((l) => l.type === 'text' && (l as TextLayerNode).content?.trim()) as TextLayerNode[];
+      const sortedByFontSize = [...textLayers].sort((a, b) => (b.fontSize || 0) - (a.fontSize || 0));
+
+      const titleLayer = textLayers.find((l) => l.semanticRole === 'headline' || l.semanticRole === 'slide_title' || l.semanticRole === 'title') || sortedByFontSize[0];
+      const bodyLayer = textLayers.find((l) => l.semanticRole === 'body' || l.semanticRole === 'slide_body' || l.semanticRole === 'subtitle') || sortedByFontSize[1];
 
       const slideTitle = titleLayer?.content || `Slide #${doc.slides.findIndex((s) => s.id === slideId) + 1}`;
       const slideBody = bodyLayer?.content || '';
