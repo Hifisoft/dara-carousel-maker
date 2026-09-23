@@ -108,6 +108,8 @@ export default function AppMain() {
   const [isSaveAsTemplateModalOpen, setIsSaveAsTemplateModalOpen] = useState(false);
   const [saveAsTemplateModalMode, setSaveAsTemplateModalMode] = useState<'full_carousel' | 'single_slide'>('full_carousel');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [generatingSlideId, setGeneratingSlideId] = useState<string | null>(null);
   const [mobileEditorTab, setMobileEditorTab] = useState<'canvas' | 'inspector'>('canvas');
 
   const [isRenameTemplateModalOpen, setIsRenameTemplateModalOpen] = useState(false);
@@ -398,6 +400,13 @@ export default function AppMain() {
       {/* EDITOR VIEW */}
       {currentView === 'editor' && (
         <main className="pt-[50px] flex-1 min-h-0 flex flex-col overflow-hidden w-full relative">
+          {imageError && (
+            <div role="alert" className="absolute top-[58px] left-1/2 -translate-x-1/2 z-40 max-w-[min(90vw,560px)] flex items-center gap-3 bg-red-950 border border-red-700 text-red-100 text-xs px-3 py-2 rounded shadow-lg">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{imageError}</span>
+              <button onClick={() => setImageError(null)} aria-label="Dismiss error" className="ml-auto p-1 hover:bg-red-900 rounded"><X className="w-3.5 h-3.5" /></button>
+            </div>
+          )}
           {/* Upper Editor Workspace */}
           <div className="flex-1 min-h-0 flex overflow-hidden relative">
             {/* Quick Tool Rail (Left Edge) */}
@@ -647,13 +656,18 @@ export default function AppMain() {
                     <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                       <button
                         className="w-4 h-4 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center shadow"
+                        disabled={generatingSlideId === slide.id}
                         onClick={async (e) => {
                           e.stopPropagation();
                           setActiveSlideId(slide.id);
+                          setImageError(null);
+                          setGeneratingSlideId(slide.id);
                           try {
                             await generateSlideImage(slide.id);
-                          } catch (err) {
-                            console.error(err);
+                          } catch (err: any) {
+                            setImageError(err.message || 'Image generation failed. Your slide was not changed.');
+                          } finally {
+                            setGeneratingSlideId(null);
                           }
                         }}
                         title="Generate AI Visual for Slide"

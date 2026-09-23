@@ -17,7 +17,7 @@ The **Create draft** path works without an AI service. To enable **Generate with
 GEMINI_API_KEY=your_server_side_key
 ```
 
-Without that key, AI copy generation returns a clear error and keeps the topic in the creation dialog. Draft creation never claims its starter text was researched or generated. The image action currently depends on the external Pollinations image endpoint; its availability and cross-origin policy affect image loading and export.
+Without that key, AI copy generation returns a clear error and keeps the topic in the creation dialog. Draft creation never claims its starter text was researched or generated. The image action currently depends on the external Pollinations image endpoint. The server checks the returned image before adding it to a slide; if the service fails, the existing slide remains intact.
 
 Documents and custom templates are stored in browser IndexedDB. They are local to that browser profile and are not synchronized across devices.
 

@@ -118,7 +118,20 @@ export async function POST(req: NextRequest) {
     const width = 1080;
     const height = 1350; // Standard 4:5 vertical carousel ratio
 
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(optimizedPrompt)}?width=${width}&height=${height}&nologo=true&seed=${seed}`;
+    const sourceUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(optimizedPrompt)}?width=${width}&height=${height}&nologo=true&seed=${seed}`;
+    const generated = await fetch(sourceUrl, { signal: AbortSignal.timeout(45000) });
+    if (!generated.ok) {
+      return NextResponse.json({ error: 'Image service is unavailable. Your existing slide was not changed.' }, { status: 502 });
+    }
+    const contentType = generated.headers.get('content-type')?.split(';')[0] || '';
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(contentType)) {
+      return NextResponse.json({ error: 'Image service returned an invalid image. Your existing slide was not changed.' }, { status: 502 });
+    }
+    const bytes = Buffer.from(await generated.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > 8 * 1024 * 1024) {
+      return NextResponse.json({ error: 'Generated image was empty or too large. Your existing slide was not changed.' }, { status: 502 });
+    }
+    const imageUrl = `data:${contentType};base64,${bytes.toString('base64')}`;
 
     const response: AIImageResponse = {
       success: true,

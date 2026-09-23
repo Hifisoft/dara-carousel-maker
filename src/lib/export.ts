@@ -1,5 +1,3 @@
-import JSZip from 'jszip';
-import { jsPDF } from 'jspdf';
 import { CarouselDocument, ImageSlotLayerNode, SlideSceneNode } from '../types/schema';
 import { resolveLineHeightMultiplier, resolveLetterSpacingPx, transformTextCase, calculateVerticalAlignOffset } from './textEngine';
 import { resolveCssFontFamily, loadFont } from './fontLoader';
@@ -133,6 +131,7 @@ export async function exportCarousel(doc: CarouselDocument, format: ExportFormat
     onProgress?.(index + 1, doc.slides.length);
   }
   if (format === 'pdf') {
+    const { jsPDF } = await import('jspdf');
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [1080, 1440], compress: true, hotfixes: ['px_scaling'] });
     for (let index = 0; index < rendered.length; index++) {
       if (index > 0) pdf.addPage([1080, 1440], 'portrait');
@@ -140,6 +139,7 @@ export async function exportCarousel(doc: CarouselDocument, format: ExportFormat
     }
     pdf.save(`${stem}.pdf`);
   } else if (format === 'zip') {
+    const { default: JSZip } = await import('jszip');
     const zip = new JSZip();
     rendered.forEach((blob, index) => zip.file(`${stem}-slide-${String(index + 1).padStart(2, '0')}.png`, blob));
     downloadBlob(await zip.generateAsync({ type: 'blob' }), `${stem}.zip`);
