@@ -138,51 +138,23 @@ Every single slide MUST contain concrete facts, names, dates, numbers, or specif
 Slide titles must be punchy and under 8 words. Body copy must be 130–195 characters long.
 Always output pure valid JSON only.`;
 
-// ─── Intelligent Semantic Fallback ────────────────────────────────────────────
-
-function buildFallback(topic: string, slideCount: number): GeneratedSlide[] {
-  const cleanTopic = topic.trim().replace(/^["']|["']$/g, '');
-  const words = cleanTopic.split(/\s+/).slice(0, 6).join(' ');
-
-  return Array.from({ length: slideCount }, (_, i) => {
-    const role = i === 0 ? 'cover_hook' : (i === slideCount - 1 ? 'cta' : 'value');
-    if (role === 'cover_hook') {
-      return {
-        index: i,
-        segmentRole: 'cover_hook',
-        slide_title: cleanTopic.toUpperCase()
-      };
-    }
-    if (role === 'cta') {
-      return {
-        index: i,
-        segmentRole: 'cta',
-        slide_title: 'Save this post & follow for more breakdowns'
-      };
-    }
-    return {
-      index: i,
-      segmentRole: 'value',
-      slide_title: `${i}. Deep Dive into ${words}`,
-      slide_body: `A key breakdown of how ${cleanTopic} shaped historical developments and continues to impact modern perspectives today.`
-    };
-  });
-}
-
 // ─── Route Handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
     const body: AIPipelineRequest = await req.json();
-    if (!body.topic || !body.idempotencyKey) {
+    if (typeof body.topic !== 'string' || !body.topic.trim() || typeof body.idempotencyKey !== 'string') {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
     }
 
-    const slideCount = Math.max(body.slideCount || 5, 3);
+    if (!process.env.GEMINI_API_KEY) {
+      return NextResponse.json({ error: 'AI copy needs a server-side GEMINI_API_KEY. You can still create a template draft without AI.' }, { status: 503 });
+    }
+
+    const slideCount = Math.min(20, Math.max(Number(body.slideCount) || 5, 3));
     let title = body.topic.substring(0, 60);
     let slides: GeneratedSlide[];
 
-    if (process.env.GEMINI_API_KEY) {
       try {
         const prompt = buildCopyPrompt(body.topic, slideCount);
         const raw = await callGemini(prompt, SYSTEM_PROMPT);
@@ -191,23 +163,21 @@ export async function POST(req: NextRequest) {
         const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
         const parsed = JSON.parse(cleaned);
 
-        title = parsed.title || title;
-
-        // Normalise and validate each slide
-        slides = (parsed.slides as any[]).map((s, i) => ({
+        if (!Array.isArray(parsed.slides) || parsed.slides.length !== slideCount ||
+            parsed.slides.some((s: any) => !s || typeof s.slide_title !== 'string' || !s.slide_title.trim())) {
+          throw new Error('AI returned an incomplete carousel');
+        }
+        title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : title;
+        slides = parsed.slides.map((s: any, i: number) => ({
           index: i,
-          segmentRole: s.segmentRole || (i === 0 ? 'cover_hook' : i === slideCount - 1 ? 'cta' : 'value'),
-          slide_title: s.slide_title || `Key Insight #${i + 1}`,
-          slide_body: s.slide_body ? s.slide_body.substring(0, 210) : undefined,
+          segmentRole: i === 0 ? 'cover_hook' : i === slideCount - 1 ? 'cta' : 'value',
+          slide_title: s.slide_title.trim(),
+          slide_body: typeof s.slide_body === 'string' ? s.slide_body.substring(0, 210) : undefined,
         }));
       } catch (aiErr: any) {
         console.error('[AI Pipeline] Gemini cascade error:', aiErr.message);
-        slides = buildFallback(body.topic, slideCount);
+        return NextResponse.json({ error: 'AI copy generation failed. Your topic is preserved; retry or create a template draft.' }, { status: 502 });
       }
-    } else {
-      console.warn('[AI Pipeline] No GEMINI_API_KEY — using fallback copy');
-      slides = buildFallback(body.topic, slideCount);
-    }
 
     const response: AIPipelineResponse = { success: true, title, slides };
     return NextResponse.json(response);

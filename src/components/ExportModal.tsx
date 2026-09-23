@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
-import { Download, FileImage, FileText, Check, X, Sparkles } from 'lucide-react';
+import { Download, FileImage, FileText, X, Archive } from 'lucide-react';
+import { exportCarousel, ExportFormat } from '../lib/export';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -15,7 +16,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
   const activeDoc = documents.find((d) => d.id === activeDocumentId);
 
   const [resolution, setResolution] = useState<'1x' | '2x' | '3x'>('2x');
-  const [exportFormat, setExportFormat] = useState<'png' | 'pdf'>('png');
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('zip');
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
 
@@ -23,36 +24,17 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
 
   const handleExport = async () => {
     setIsExporting(true);
-    setExportStatus('Rendering High-DPI Canvas Slides...');
+    setExportStatus('Rendering slides...');
 
     try {
-      const slides = activeDoc.slides;
-
-      for (let i = 0; i < slides.length; i++) {
-        setExportStatus(`Exporting Slide ${i + 1} of ${slides.length} (@${resolution})...`);
-        await new Promise((resolve) => setTimeout(resolve, 300));
-      }
-
-      setExportStatus('Finalizing export package...');
-      await new Promise((resolve) => setTimeout(resolve, 400));
-
-      const canvasEl = document.querySelector('canvas');
-      if (canvasEl) {
-        const dataUrl = canvasEl.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.download = `${activeDoc.title.toLowerCase().replace(/\s+/g, '-')}-slide-1-${resolution}.png`;
-        link.href = dataUrl;
-        link.click();
-      }
-
-      setExportStatus('✓ Export Complete!');
-      setTimeout(() => {
-        setIsExporting(false);
-        setExportStatus(null);
-        onClose();
-      }, 800);
+      await exportCarousel(activeDoc, exportFormat, Number(resolution[0]), (completed, total) => {
+        setExportStatus(`Rendering slide ${completed} of ${total}...`);
+      });
+      setExportStatus(null);
+      onClose();
     } catch (err: any) {
       setExportStatus(`Export Error: ${err.message || 'Failed to render canvas'}`);
+    } finally {
       setIsExporting(false);
     }
   };
@@ -73,9 +55,9 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
         {/* Format Selection */}
         <div className="space-y-3">
           <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Export Format</label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-2">
             <button
-              className={`p-3 rounded-lg border flex flex-col items-center gap-1.5 transition-colors ${
+              className={`p-3 rounded border flex flex-col items-center gap-1.5 transition-colors ${
                 exportFormat === 'png'
                   ? 'bg-accent-blue/15 border-accent-blue text-white'
                   : 'bg-surface border-border-default text-text-secondary hover:border-text-secondary'
@@ -83,12 +65,24 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
               onClick={() => setExportFormat('png')}
             >
               <FileImage className="w-5 h-5 text-accent-blue" />
-              <span className="text-xs font-bold">PNG Images (Zip)</span>
-              <span className="text-[10px] text-text-tertiary">Best for Instagram & X</span>
+              <span className="text-xs font-bold">PNG</span>
+              <span className="text-[10px] text-text-tertiary">Separate slides</span>
+            </button>
+            <button
+              className={`p-3 rounded border flex flex-col items-center gap-1.5 transition-colors ${
+                exportFormat === 'zip'
+                  ? 'bg-accent-blue/15 border-accent-blue text-white'
+                  : 'bg-surface border-border-default text-text-secondary hover:border-text-secondary'
+              }`}
+              onClick={() => setExportFormat('zip')}
+            >
+              <Archive className="w-5 h-5 text-accent-green" />
+              <span className="text-xs font-bold">ZIP</span>
+              <span className="text-[10px] text-text-tertiary">All PNG slides</span>
             </button>
 
             <button
-              className={`p-3 rounded-lg border flex flex-col items-center gap-1.5 transition-colors ${
+              className={`p-3 rounded border flex flex-col items-center gap-1.5 transition-colors ${
                 exportFormat === 'pdf'
                   ? 'bg-accent-blue/15 border-accent-blue text-white'
                   : 'bg-surface border-border-default text-text-secondary hover:border-text-secondary'
@@ -96,8 +90,8 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
               onClick={() => setExportFormat('pdf')}
             >
               <FileText className="w-5 h-5 text-purple-400" />
-              <span className="text-xs font-bold">PDF Carousel</span>
-              <span className="text-[10px] text-text-tertiary">Best for LinkedIn Posts</span>
+              <span className="text-xs font-bold">PDF</span>
+              <span className="text-[10px] text-text-tertiary">Multi-page</span>
             </button>
           </div>
         </div>
@@ -124,14 +118,14 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
             ))}
           </div>
           <p className="text-[11px] text-text-tertiary">
-            💡 <strong>@2x (2160x2880px)</strong> is recommended for ultra-sharp mobile rendering on Retina screens.
+            <strong>@2x (2160x2880px)</strong> is recommended for sharp mobile rendering.
           </p>
         </div>
 
         {/* Export Status / Progress */}
         {exportStatus && (
           <div className="p-3 bg-surface rounded border border-border-default text-xs font-medium text-accent-blue flex items-center gap-2">
-            <Sparkles className="w-4 h-4 animate-spin text-accent-blue" />
+            <Download className="w-4 h-4 text-accent-blue" />
             <span>{exportStatus}</span>
           </div>
         )}

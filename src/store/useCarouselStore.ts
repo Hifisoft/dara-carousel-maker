@@ -2300,7 +2300,7 @@ export const useCarouselStore = create<CarouselState>()(
             semanticRole: 'headline',
             type: 'text',
             role: 'headline',
-            content: aiSlide?.slide_title || (idx === 0 ? (aiCopy?.title || title || 'Untitled Carousel') : `Key Takeaway #${idx}`),
+            content: aiSlide?.slide_title || (idx === 0 ? (title || 'Untitled Carousel') : idx === slideCount - 1 ? 'Your closing thought' : `Point ${idx}`),
             x: 60,
             y: idx === 0 ? 800 : 200,
             width: 960,
@@ -2343,14 +2343,15 @@ export const useCarouselStore = create<CarouselState>()(
             }
           });
         } else {
-          // No AI copy — use sensible defaults from topic/title
+          // A manual draft keeps the template design without presenting sample copy as user content.
           const textLayers = layers
             .filter(l => l.type === 'text')
             .sort((a, b) => ((b as TextLayerNode).fontSize || 0) - ((a as TextLayerNode).fontSize || 0));
           textLayers.forEach((layer, rank) => {
             const tl = layer as TextLayerNode;
-            if (rank === 0) tl.content = idx === 0 ? (title || 'Untitled Carousel') : `Key Takeaway #${idx}`;
-            else if (rank === 1 && idx === 0) tl.content = topic || tl.content;
+            if (rank === 0) tl.content = idx === 0 ? (title || 'Untitled Carousel') : idx === slideCount - 1 ? 'Your closing thought' : `Point ${idx}`;
+            else if (rank === 1) tl.content = idx === 0 ? topic : idx === slideCount - 1 ? 'Add your call to action.' : 'Write the supporting copy for this slide.';
+            else tl.content = '';
           });
         }
 
@@ -3482,4 +3483,3 @@ function getActiveLayerContainerAndSave(state: any): { container: { layers: Laye
     }
   };
 }
-

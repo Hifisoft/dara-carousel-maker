@@ -2,20 +2,12 @@
 
 import React, { useState } from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
-import { X, Sparkles, Loader2, CheckCircle2 } from 'lucide-react';
+import { X, Sparkles, Loader2 } from 'lucide-react';
 
 interface NewCarouselModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-const STEPS = [
-  '✦ Understanding topic & audience...',
-  '✦ Building narrative arc...',
-  '✦ Writing slide copy with AI...',
-  '✦ Applying template layout...',
-  '✦ Finalising carousel...',
-];
 
 export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
   const createDocument = useCarouselStore((state) => state.createDocument);
@@ -25,56 +17,26 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
   const [prompt, setPrompt] = useState('');
   const [slideCount, setSlideCount] = useState(5);
   const [templateId, setTemplateId] = useState(activeTemplateId || templates[0]?.id || '');
-  const [inputMode, setInputMode] = useState<'prompt' | 'url' | 'notes'>('prompt');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [doneSteps, setDoneSteps] = useState<number[]>([]);
+  const [operation, setOperation] = useState<'ai' | 'draft'>('ai');
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
-  const advanceStep = (step: number) => {
-    setCurrentStep(step);
-    setDoneSteps(prev => [...prev, step - 1].filter(s => s >= 0));
-  };
-
-  const handleSubmit = async () => {
+  const handleSubmit = async (mode: 'ai' | 'draft') => {
     if (!prompt.trim()) return;
+    setOperation(mode);
     setIsGenerating(true);
     setError('');
-    setDoneSteps([]);
-    setCurrentStep(0);
 
     try {
-      // Step 1 — understanding topic
-      advanceStep(0);
-      await delay(400);
-
-      // Step 2 — narrative arc
-      advanceStep(1);
-      await delay(400);
-
-      // Step 3 — AI copy generation (real network call)
-      advanceStep(2);
-      const aiCopy = await fetchAICopy(prompt, slideCount, templateId);
-
-      // Step 4 — applying template
-      advanceStep(3);
-      await delay(300);
-
-      // Step 5 — finalising
-      advanceStep(4);
-      await createDocument(prompt, prompt, slideCount, templateId, aiCopy);
-      setDoneSteps([0, 1, 2, 3, 4]);
-
-      await delay(300);
+      const aiCopy = mode === 'ai' ? await fetchAICopy(prompt, slideCount, templateId) : undefined;
+      await createDocument(aiCopy?.title || prompt, prompt, slideCount, templateId, aiCopy);
       onClose();
     } catch (err: any) {
       setError(err.message || 'Something went wrong. Please try again.');
     } finally {
       setIsGenerating(false);
-      setCurrentStep(0);
-      setDoneSteps([]);
     }
   };
 
@@ -91,39 +53,18 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
           </button>
         </div>
         <p className="text-xs text-text-secondary mb-4">
-          Turn an idea, article link, or notes into a professional carousel — AI writes the copy using your template.
+          Start with a topic and a template. Generate written slides with AI, or make an editable draft yourself.
         </p>
 
-        {/* Input Mode Selector */}
-        <div className="flex gap-2 mb-3">
-          {(['prompt', 'url', 'notes'] as const).map(mode => (
-            <button
-              key={mode}
-              className={`px-3 py-1.5 rounded text-xs font-semibold ${
-                inputMode === mode ? 'bg-accent-blue text-white' : 'bg-surface-elevated text-text-secondary hover:text-white'
-              }`}
-              onClick={() => setInputMode(mode)}
-            >
-              {mode === 'prompt' ? 'Topic Prompt' : mode === 'url' ? 'Article URL' : 'Markdown Notes'}
-            </button>
-          ))}
-        </div>
-
-        {/* Prompt Input */}
         <div className="mb-4">
+          <label className="block text-[11px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">Topic</label>
           <textarea
             className="w-full bg-surface-elevated border border-border-default rounded-md p-3 text-xs text-white placeholder-text-tertiary focus:border-border-focus outline-none resize-none"
             rows={4}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             disabled={isGenerating}
-            placeholder={
-              inputMode === 'url'
-                ? 'Paste article or blog post URL...'
-                : inputMode === 'notes'
-                ? 'Paste markdown notes or draft content...'
-                : 'Enter topic (e.g. "5 habits that double your productivity")'
-            }
+            placeholder={'e.g. Countries that no longer exist'}
           />
         </div>
 
@@ -164,29 +105,10 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
           </div>
         </div>
 
-        {/* AI Progress Steps */}
         {isGenerating && (
-          <div className="mb-4 p-3 bg-black border border-border-default rounded-md space-y-2">
-            {STEPS.map((step, i) => {
-              const isDone = doneSteps.includes(i);
-              const isActive = currentStep === i;
-              return (
-                <div key={i} className={`flex items-center gap-2 text-xs transition-opacity duration-300 ${
-                  isDone ? 'opacity-100' : isActive ? 'opacity-100' : 'opacity-30'
-                }`}>
-                  {isDone ? (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" />
-                  ) : isActive ? (
-                    <Loader2 className="w-3.5 h-3.5 text-accent-blue animate-spin shrink-0" />
-                  ) : (
-                    <div className="w-3.5 h-3.5 rounded-full border border-border-default shrink-0" />
-                  )}
-                  <span className={isDone ? 'text-green-400' : isActive ? 'text-accent-blue font-semibold' : 'text-text-secondary'}>
-                    {step}
-                  </span>
-                </div>
-              );
-            })}
+          <div className="mb-4 p-3 bg-black border border-border-default rounded-md flex items-center gap-2 text-xs text-accent-blue">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            {operation === 'ai' ? 'Writing your carousel...' : 'Creating your draft...'}
           </div>
         )}
 
@@ -207,11 +129,18 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
             Cancel
           </button>
           <button
-            className="px-5 py-2 text-xs font-semibold rounded bg-gradient-to-r from-purple-600 to-accent-blue text-white hover:opacity-90 disabled:opacity-50"
-            onClick={handleSubmit}
+            className="px-4 py-2 text-xs font-semibold rounded border border-border-default bg-surface-elevated text-white hover:bg-surface-hover disabled:opacity-50"
+            onClick={() => handleSubmit('draft')}
             disabled={isGenerating || !prompt.trim()}
           >
-            {isGenerating ? 'Creating...' : 'Create Carousel'}
+            Create draft
+          </button>
+          <button
+            className="px-5 py-2 text-xs font-semibold rounded bg-accent-blue text-white hover:opacity-90 disabled:opacity-50"
+            onClick={() => handleSubmit('ai')}
+            disabled={isGenerating || !prompt.trim()}
+          >
+            {isGenerating && operation === 'ai' ? 'Writing...' : 'Generate with AI'}
           </button>
         </div>
       </div>
@@ -220,10 +149,6 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function delay(ms: number) {
-  return new Promise(res => setTimeout(res, ms));
-}
 
 async function fetchAICopy(topic: string, slideCount: number, templateId: string) {
   try {
