@@ -19,6 +19,7 @@ const KonvaCanvas = dynamic(
 import { InspectorPanel } from '../components/InspectorPanel';
 import { SaveAsTemplateModal } from '../components/SaveAsTemplateModal';
 import { ExportModal } from '../components/ExportModal';
+import { SlidePreview } from '../components/SlidePreview';
 
 export default function AppMain() {
   const currentView = useCarouselStore((state) => state.currentView);
@@ -89,6 +90,7 @@ export default function AppMain() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState('updated');
 
   // Native File Picker Ref for Image Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -158,7 +160,7 @@ export default function AppMain() {
     (doc) =>
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       doc.topic.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ).sort((a, b) => sortOrder === 'title' ? a.title.localeCompare(b.title) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 
   // Keyboard shortcut listener for Z-order, grouping, duplication, deletion & slide reordering
   useEffect(() => {
@@ -296,7 +298,7 @@ export default function AppMain() {
   };
 
   return (
-    <div className="h-screen max-h-screen w-screen overflow-hidden bg-workspace text-white flex flex-col select-none">
+    <div className="studio-app h-screen max-h-screen w-screen overflow-hidden bg-workspace text-white flex flex-col select-none">
 
       <NavigationHeader
         onOpenCreationModal={() => setIsModalOpen(true)}
@@ -318,80 +320,46 @@ export default function AppMain() {
 
       {/* DASHBOARD VIEW */}
       {currentView === 'dashboard' && (
-        <main className="pt-[74px] px-6 max-w-[1280px] mx-auto pb-12 flex-1 overflow-y-auto w-full">
-          <div className="flex items-center justify-between mb-6">
+        <main className="library-page">
+          <div className="library-heading">
             <div>
-              <h1 className="text-2xl font-bold text-white mb-1">Projects</h1>
-              <p className="text-xs text-text-secondary">
-                Manage, edit, and export your high-converting social media carousels.
-              </p>
+              <h1>Carousels</h1>
+              <p>{documents.length} {documents.length === 1 ? 'carousel' : 'carousels'} in your workspace</p>
             </div>
-
-            <div className="relative w-[300px]">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
-              <input
-                type="text"
-                className="w-full bg-surface border border-border-default rounded-md pl-9 pr-3 py-2 text-xs text-white placeholder-text-tertiary focus:border-border-focus outline-none"
-                placeholder="Search projects..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+            <div className="library-controls">
+              <div className="library-search">
+                <Search />
+                <input aria-label="Search carousels" placeholder="Search carousels" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+              </div>
+              <select className="library-sort" aria-label="Sort carousels" value={sortOrder} onChange={event => setSortOrder(event.target.value)}>
+                <option value="updated">Last edited</option>
+                <option value="title">Name</option>
+              </select>
             </div>
           </div>
 
           {filteredDocs.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            <div className="project-grid">
               {filteredDocs.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="bg-surface border border-border-default rounded-lg overflow-hidden cursor-pointer hover:-translate-y-1 hover:border-text-tertiary hover:shadow-2xl transition-all group flex flex-col"
-                  onClick={() => openDocument(doc.id)}
-                >
-                  <div
-                    className="aspect-[4/5] relative flex items-center justify-center p-6 text-center"
-                    style={{ backgroundColor: doc.slides[0]?.backgroundColor || '#111111' }}
-                  >
-                    <span className="text-sm font-extrabold text-white line-clamp-3">
-                      {(doc.slides[0]?.layers[0] as any)?.content || doc.title}
-                    </span>
-
-                    <button
-                      className="absolute top-2 right-2 p-1.5 rounded bg-red-600/80 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteDocument(doc.id);
-                      }}
-                      title="Delete Project"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="p-3 border-t border-border-subtle">
-                    <h3 className="text-xs font-semibold text-white truncate mb-1">{doc.title}</h3>
-                    <div className="flex justify-between items-center text-[10px] text-text-secondary">
-                      <span>{doc.slides.length} Slides</span>
-                      <span>Just now</span>
+                <article key={doc.id} className="project-item">
+                  <button className="project-open" onClick={() => openDocument(doc.id)} aria-label={`Open ${doc.title}`}>
+                    <div className="project-stage">
+                      {doc.slides[0] && <SlidePreview slide={doc.slides[0]} />}
                     </div>
-                  </div>
-                </div>
+                    <div className="project-info">
+                      <h3>{doc.title}</h3>
+                      <p><span>{doc.slides.length} {doc.slides.length === 1 ? 'slide' : 'slides'}</span><span className="subtitle-dot" /><time dateTime={doc.updatedAt}>{new Date(doc.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}</time></p>
+                    </div>
+                  </button>
+                  <button className="project-delete" onClick={() => deleteDocument(doc.id)} title="Delete carousel" aria-label={`Delete ${doc.title}`}><Trash2 size={13} /></button>
+                </article>
               ))}
             </div>
           ) : (
-            <div className="text-center py-16 max-w-[480px] mx-auto">
-              <div className="w-14 h-14 rounded-full bg-surface-elevated border border-border-default flex items-center justify-center mx-auto mb-4 text-text-secondary">
-                <LayoutGrid className="w-6 h-6" />
-              </div>
-              <h3 className="text-base font-bold text-white mb-1.5">No Carousels Created Yet</h3>
-              <p className="text-xs text-text-secondary mb-4">
-                Create your first social media carousel using AI prompt generation or custom templates.
-              </p>
-              <button
-                className="px-4 py-2 text-xs font-semibold rounded bg-accent-blue text-white hover:bg-blue-600"
-                onClick={() => setIsModalOpen(true)}
-              >
-                Create Carousel
-              </button>
+            <div className="library-empty">
+              <LayoutGrid />
+              <h2>{searchQuery ? 'No matching carousels' : 'Your next story starts here.'}</h2>
+              {searchQuery ? <button className="secondary-button" onClick={() => setSearchQuery('')}>Clear search</button> : <button className="primary-button" onClick={() => setIsModalOpen(true)}><Plus size={16} />New carousel</button>}
             </div>
           )}
         </main>
@@ -399,7 +367,7 @@ export default function AppMain() {
 
       {/* EDITOR VIEW */}
       {currentView === 'editor' && (
-        <main className="pt-[50px] flex-1 min-h-0 flex flex-col overflow-hidden w-full relative">
+        <main className="editor-main flex-1 min-h-0 flex flex-col overflow-hidden w-full relative">
           {imageError && (
             <div role="alert" className="absolute top-[58px] left-1/2 -translate-x-1/2 z-40 max-w-[min(90vw,560px)] flex items-center gap-3 bg-red-950 border border-red-700 text-red-100 text-xs px-3 py-2 rounded shadow-lg">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -410,7 +378,7 @@ export default function AppMain() {
           {/* Upper Editor Workspace */}
           <div className="flex-1 min-h-0 flex overflow-hidden relative">
             {/* Quick Tool Rail (Left Edge) */}
-            <div className="w-[52px] sm:w-[60px] shrink-0 bg-surface border-r border-border-default flex flex-col items-center py-3 sm:py-4 gap-2.5 sm:gap-3.5 z-30 relative select-none">
+            <div className="tool-rail shrink-0 bg-surface border-r border-border-default flex flex-col items-center z-30 relative select-none">
               <button
                 className="p-2 sm:p-2.5 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center gap-1 transition-colors"
                 onClick={() => addTextLayer()}
@@ -514,12 +482,12 @@ export default function AppMain() {
             </div>
 
             {/* Right 4-Tab Inspector Panel */}
-            <div className={`w-full lg:w-[320px] xl:w-[340px] shrink-0 flex-col overflow-hidden h-full ${mobileEditorTab === 'canvas' ? 'hidden lg:flex' : 'flex'}`}>
+            <div className={`flex-1 min-w-0 lg:flex-none lg:w-[320px] xl:w-[340px] flex-col overflow-hidden h-full ${mobileEditorTab === 'canvas' ? 'hidden lg:flex' : 'flex'}`}>
               <InspectorPanel />
             </div>
 
             {/* Mobile View Toggle Bar (visible only on <1024px screens) */}
-            <div className="lg:hidden fixed bottom-[105px] left-1/2 -translate-x-1/2 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-full p-1 shadow-2xl flex items-center gap-1">
+            <div className="mobile-editor-toggle lg:hidden fixed left-1/2 -translate-x-1/2 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-lg p-1 shadow-2xl flex items-center gap-1">
               <button
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors ${
                   mobileEditorTab === 'canvas'
@@ -529,7 +497,7 @@ export default function AppMain() {
                 onClick={() => setMobileEditorTab('canvas')}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                Canvas Stage
+                Canvas
               </button>
               <button
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors ${
@@ -540,14 +508,14 @@ export default function AppMain() {
                 onClick={() => setMobileEditorTab('inspector')}
               >
                 <Sliders className="w-3.5 h-3.5" />
-                Design Panel
+                Inspector
               </button>
             </div>
           </div>
 
           {/* Bottom Horizontal Strip: Master Layout Navigator (in Template Mode) vs Carousel Slide Deck (in Standard Mode) */}
           {isTemplateEditorMode ? (
-            <div className="h-[92px] sm:h-[96px] bg-surface border-t border-border-default flex items-center px-3 sm:px-4 gap-2.5 sm:gap-3 overflow-x-auto z-20 shrink-0 select-none">
+            <div className="filmstrip bg-surface flex items-center overflow-x-auto z-20 shrink-0 select-none">
               {getActiveTemplate()?.layouts.map((layout) => {
                 const isActive = layout.id === activeLayoutId;
 
@@ -599,21 +567,9 @@ export default function AppMain() {
               </button>
             </div>
           ) : (
-            <div className="h-[92px] sm:h-[96px] bg-surface border-t border-border-default flex items-center px-3 sm:px-4 gap-2.5 sm:gap-3 overflow-x-auto z-20 shrink-0 select-none">
+            <div className="filmstrip bg-surface flex items-center overflow-x-auto z-20 shrink-0 select-none">
               {activeDoc?.slides.map((slide, idx) => {
                 const isActive = slide.id === activeSlideId;
-                const isLogo = (l: any) =>
-                  l.type === 'logo' ||
-                  l.semanticRole === 'logo' ||
-                  l.semanticRole === 'brand_logo' ||
-                  l.semanticRole === 'author_avatar' ||
-                  (l.name && l.name.toLowerCase().includes('logo')) ||
-                  (l.id && l.id.toLowerCase().includes('logo'));
-
-                const slideImgLayer = slide.layers.find(
-                  (l) => ((l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))) && !isLogo(l)
-                );
-                const slideImgUrl = (slideImgLayer as any)?.assignedMediaUrl || (slideImgLayer as any)?.url || (slideImgLayer as any)?.localPreviewUrl;
 
                 return (
                   <div
@@ -631,31 +587,22 @@ export default function AppMain() {
                       }
                       setDraggedSlideId(null);
                     }}
-                    className={`w-[64px] h-[76px] sm:w-[70px] sm:h-[80px] rounded-lg border cursor-pointer relative overflow-hidden transition-all shrink-0 group flex flex-col ${
-                      isActive
-                        ? 'border-accent-blue ring-2 ring-blue-500/40 shadow-lg'
-                        : 'border-border-default hover:border-text-secondary opacity-80 hover:opacity-100'
-                    }`}
-                    style={{ backgroundColor: slide.backgroundColor || '#111' }}
+                    className={`filmstrip-slide ${isActive ? 'is-active' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Slide ${idx + 1}`}
+                    aria-pressed={isActive}
+                    onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setActiveSlideId(slide.id); } }}
                     onClick={() => setActiveSlideId(slide.id)}
                   >
-                    {/* Background Image Thumbnail Preview */}
-                    {slideImgUrl && (
-                      <img
-                        src={slideImgUrl}
-                        alt=""
-                        className="absolute inset-0 w-full h-full object-cover opacity-50 pointer-events-none"
-                      />
-                    )}
-
-                    <span className="absolute top-1 left-1 bg-black/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded z-10 backdrop-blur-xs">
-                      #{idx + 1}
+                    <SlidePreview slide={slide} />
+                    <span className="slide-number">
+                      {idx + 1}
                     </span>
 
                     {/* Actions Overlay (Generate Image, Duplicate & Delete) */}
-                    <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                    <div className="slide-actions">
                       <button
-                        className="w-4 h-4 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center shadow"
                         disabled={generatingSlideId === slide.id}
                         onClick={async (e) => {
                           e.stopPropagation();
@@ -672,10 +619,9 @@ export default function AppMain() {
                         }}
                         title="Generate AI Visual for Slide"
                       >
-                        <Sparkles className="w-2.5 h-2.5 text-yellow-300" />
+                        <Sparkles />
                       </button>
                       <button
-                        className="w-4 h-4 rounded-full bg-surface-elevated text-white flex items-center justify-center hover:bg-surface-hover"
                         onClick={(e) => {
                           e.stopPropagation();
                           duplicateSlide(slide.id);
@@ -686,7 +632,6 @@ export default function AppMain() {
                       </button>
                       {activeDoc.slides.length > 1 && (
                         <button
-                          className="w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700"
                           onClick={(e) => {
                             e.stopPropagation();
                             deleteSlide(slide.id);
@@ -698,16 +643,13 @@ export default function AppMain() {
                       )}
                     </div>
 
-                    <div className="p-1 text-[7px] text-white/90 overflow-hidden h-full flex items-center justify-center text-center font-medium leading-tight relative z-10 drop-shadow-sm">
-                      {(slide.layers.find(l => l.type === 'text') as any)?.content || `Slide ${idx + 1}`}
-                    </div>
                   </div>
                 );
               })}
 
               {/* Active Slide Layout Switcher Dropdown */}
               {activeSlide && (
-                <div className="hidden sm:flex items-center gap-1.5 bg-surface-elevated border border-border-default rounded-lg px-2.5 py-1.5 ml-auto shrink-0 shadow-md">
+                <div className="layout-switcher hidden sm:flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 ml-auto shrink-0">
                   <LayoutTemplate className="w-3.5 h-3.5 text-accent-blue" />
                   <span className="text-[9px] font-semibold text-text-secondary uppercase">Layout:</span>
                   <select
@@ -731,7 +673,7 @@ export default function AppMain() {
 
               {/* + Add Slide Button */}
               <button
-                className="w-[64px] h-[76px] sm:w-[70px] sm:h-[80px] rounded-lg border-2 border-dashed border-border-default hover:border-accent-blue bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center justify-center gap-1 shrink-0 transition-all ml-1 sm:ml-0"
+                className="add-slide-button border hover:border-accent-blue text-text-secondary hover:text-white flex flex-col items-center justify-center gap-2 shrink-0 transition-all"
                 onClick={() => setShowLayoutPicker(true)}
               >
                 <Plus className="w-4 h-4 text-accent-blue" />
@@ -785,7 +727,7 @@ export default function AppMain() {
 
       {/* BRAND KIT & TEMPLATES VIEW */}
       {(currentView === 'templates' || currentView === 'creative-director') && (
-        <main className="pt-[65px] px-6 max-w-[1280px] mx-auto pb-12 flex-1 overflow-y-auto w-full">
+        <main className="pt-[104px] px-6 max-w-[1280px] mx-auto pb-12 flex-1 overflow-y-auto w-full">
           <div className="flex items-center justify-between border-b border-border-default pb-4 mb-6">
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">Brand Kit & Design System</h1>
@@ -1118,7 +1060,7 @@ export default function AppMain() {
 
       {/* AI SETTINGS VIEW */}
       {currentView === 'settings' && (
-        <main className="pt-[65px] px-6 max-w-[1280px] mx-auto pb-24 flex-1 overflow-y-auto w-full space-y-8">
+        <main className="pt-[104px] px-6 max-w-[1280px] mx-auto pb-24 flex-1 overflow-y-auto w-full space-y-8">
           <div>
             <h1 className="text-2xl font-bold text-white mb-1">AI Configuration Engine</h1>
             <p className="text-xs text-text-secondary">

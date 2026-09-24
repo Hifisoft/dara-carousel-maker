@@ -432,64 +432,20 @@ export function InspectorPanel() {
   };
 
   return (
-    <div className="w-full lg:w-[340px] bg-surface border-t lg:border-t-0 lg:border-l border-border-default flex flex-col h-full overflow-hidden z-20">
+    <div className="studio-inspector w-full bg-surface border-t lg:border-t-0 lg:border-l border-border-default flex flex-col h-full overflow-hidden z-20">
       {/* Tab Navigation Header */}
-      <div className="flex border-b border-border-default bg-surface-elevated">
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'design'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('design')}
-        >
-          <Palette className="w-3.5 h-3.5" />
-          Design
-        </button>
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'slot'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('slot')}
-        >
-          <LayoutTemplate className="w-3.5 h-3.5" />
-          Slot
-        </button>
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'ai'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('ai')}
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          Creative AI
-        </button>
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'layers'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('layers')}
-        >
-          <LayersIcon className="w-3.5 h-3.5" />
-          Layers
-        </button>
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'export'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('export')}
-        >
-          <Download className="w-3.5 h-3.5" />
-          Export
-        </button>
+      <div className="inspector-tabs" role="tablist" aria-label="Inspector">
+        {([
+          { id: 'design', label: 'Design', icon: Palette },
+          { id: 'slot', label: 'Slots', icon: LayoutTemplate },
+          { id: 'ai', label: 'Create', icon: Sparkles },
+          { id: 'layers', label: 'Layers', icon: LayersIcon },
+          { id: 'export', label: 'Export', icon: Download },
+        ] as const).map(({ id, label, icon: Icon }) => (
+          <button key={id} role="tab" aria-selected={activeTab === id} onClick={() => setActiveTab(id)} title={label}>
+            <Icon size={17} /><span>{label}</span>
+          </button>
+        ))}
       </div>
 
       {/* Main Content Area */}

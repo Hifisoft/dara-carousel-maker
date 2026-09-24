@@ -10,6 +10,7 @@ import {
 } from '../lib/textEngine';
 import { hexOrColorToRgba } from '../lib/colorUtils';
 import { resolveCssFontFamily, loadFont } from '../lib/fontLoader';
+import { Minus, Plus, Maximize2 } from 'lucide-react';
 
 function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
   layer: ImageLayerNode;
@@ -342,8 +343,8 @@ export function KonvaCanvas() {
 
     const updateScale = () => {
       const rect = parent.getBoundingClientRect();
-      const paddingX = rect.width < 600 ? 16 : rect.width < 1024 ? 32 : 48;
-      const paddingY = rect.height < 600 ? 16 : rect.height < 900 ? 32 : 48;
+      const paddingX = rect.width < 600 ? 32 : 96;
+      const paddingY = rect.height < 600 ? 104 : 120;
       const availableW = Math.max(100, rect.width - paddingX);
       const availableH = Math.max(100, rect.height - paddingY);
       const s = Math.min(availableW / 1080, availableH / 1440);
@@ -618,8 +619,8 @@ export function KonvaCanvas() {
     const parent = viewportRef.current || document.getElementById('canvas-viewport');
     if (parent) {
       const rect = parent.getBoundingClientRect();
-      const paddingX = rect.width < 600 ? 16 : rect.width < 1024 ? 32 : 48;
-      const paddingY = rect.height < 600 ? 16 : rect.height < 900 ? 32 : 48;
+      const paddingX = rect.width < 600 ? 32 : 96;
+      const paddingY = rect.height < 600 ? 104 : 120;
       const availableW = Math.max(100, rect.width - paddingX);
       const availableH = Math.max(100, rect.height - paddingY);
       const s = Math.min(availableW / 1080, availableH / 1440);
@@ -636,35 +637,38 @@ export function KonvaCanvas() {
       }`}
     >
       {/* Floating Canvas Zoom Bar */}
-      <div className="absolute bottom-3 right-3 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-lg px-2 py-1 flex items-center gap-1.5 shadow-2xl text-xs font-semibold text-white">
+      <div className="canvas-zoom">
         <button
-          className="p-1 hover:bg-surface rounded text-text-secondary hover:text-white text-xs"
+          className="icon-button"
           onClick={() => handleZoom(-0.05)}
           title="Zoom Out"
+          aria-label="Zoom out"
         >
-          -
+          <Minus size={14} />
         </button>
-        <span className="text-[10px] font-mono text-accent-blue font-bold min-w-[32px] text-center">
+        <span>
           {Math.round(scale * 100)}%
         </span>
         <button
-          className="p-1 hover:bg-surface rounded text-text-secondary hover:text-white text-xs"
+          className="icon-button"
           onClick={() => handleZoom(0.05)}
           title="Zoom In"
+          aria-label="Zoom in"
         >
-          +
+          <Plus size={14} />
         </button>
         <button
-          className="px-2 py-0.5 bg-surface hover:bg-surface-hover rounded text-[10px] text-text-secondary hover:text-white border border-border-subtle"
+          className="icon-button zoom-fit"
           onClick={handleResetZoom}
           title="Fit Canvas"
+          aria-label="Fit canvas"
         >
-          Fit
+          <Maximize2 size={13} />
         </button>
       </div>
 
       <div 
-        className="w-[1080px] h-[1440px] shadow-2xl relative transition-transform duration-75 origin-center shrink-0"
+        className="canvas-artboard w-[1080px] h-[1440px] relative transition-transform duration-75 origin-center shrink-0"
         style={{
           transform: `scale(${scale})`,
           backgroundColor: currentBgColor
