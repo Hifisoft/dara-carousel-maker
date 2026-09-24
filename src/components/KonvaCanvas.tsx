@@ -13,15 +13,19 @@ import { resolveCssFontFamily, loadFont } from '../lib/fontLoader';
 import { adjustedImage, imageCrop, roundedImagePath } from '../lib/imageRendering';
 import { Minus, Plus, Maximize2 } from 'lucide-react';
 
-function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
+function ImageNode({ layer, cropMode, onSelect, onEnterCrop, onCropChange, onDragMove, onDragEnd, onTransformEnd }: {
   layer: ImageLayerNode;
+  cropMode: boolean;
   onSelect: () => void;
+  onEnterCrop: () => void;
+  onCropChange: (crop: NonNullable<ImageLayerNode['crop']>) => void;
   onDragMove: (e: any) => void;
   onDragEnd: (e: any) => void;
   onTransformEnd: (e: any) => void;
 }) {
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const cropPreviewRef = useRef<any>(null);
 
   useEffect(() => {
     const src = layer.localPreviewUrl || layer.url;
@@ -55,6 +59,23 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
     () => imageObj ? adjustedImage(imageObj, layer.adjustments) : null,
     [imageObj, layer.adjustments],
   );
+  const crop = displayImage ? imageCrop(layer, displayImage) : null;
+  const sourceWidth = displayImage && displayImage instanceof HTMLImageElement ? displayImage.naturalWidth : displayImage?.width || 0;
+  const sourceHeight = displayImage && displayImage instanceof HTMLImageElement ? displayImage.naturalHeight : displayImage?.height || 0;
+  const imageScale = crop ? layer.width / crop.width : 1;
+  const fullWidth = sourceWidth * imageScale;
+  const fullHeight = sourceHeight * imageScale;
+  const imageX = crop ? -crop.x * imageScale : 0;
+  const imageY = crop ? -crop.y * imageScale : 0;
+
+  const commitImagePosition = (x: number, y: number) => {
+    if (!crop) return;
+    const availableX = sourceWidth - crop.width;
+    const availableY = sourceHeight - crop.height;
+    const offsetX = availableX > 0 ? Math.max(-1, Math.min(1, (-x / imageScale / availableX) * 2 - 1)) : 0;
+    const offsetY = availableY > 0 ? Math.max(-1, Math.min(1, (-y / imageScale / availableY) * 2 - 1)) : 0;
+    onCropChange({ scale: layer.crop?.scale || 1, offsetX, offsetY });
+  };
 
   // Show visible placeholder when image fails — makes broken images obvious
   if (loadFailed || (!imageObj && !(layer.localPreviewUrl || layer.url))) {
@@ -65,13 +86,13 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
         y={layer.y}
         rotation={layer.rotation}
         opacity={layer.opacity}
-        draggable={!layer.isLocked}
+        draggable={!layer.isLocked && !cropMode}
         visible={layer.isVisible}
         onClick={(e) => { e.cancelBubble = true; onSelect(); }}
         onTap={(e) => { e.cancelBubble = true; onSelect(); }}
-        onDragMove={onDragMove}
-        onDragEnd={onDragEnd}
-        onTransformEnd={onTransformEnd}
+        onDragMove={cropMode ? undefined : onDragMove}
+        onDragEnd={cropMode ? undefined : onDragEnd}
+        onTransformEnd={cropMode ? undefined : onTransformEnd}
       >
         <Rect
           width={layer.width}
@@ -102,7 +123,7 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
       y={layer.y}
       rotation={layer.rotation}
       opacity={layer.opacity}
-      draggable={!layer.isLocked}
+      draggable={!layer.isLocked && !cropMode}
       visible={layer.isVisible}
       onClick={(e) => {
         e.cancelBubble = true;
@@ -112,18 +133,54 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
         e.cancelBubble = true;
         onSelect();
       }}
-      onDragMove={onDragMove}
-      onDragEnd={onDragEnd}
-      onTransformEnd={onTransformEnd}
+      onDblClick={(e) => { e.cancelBubble = true; onEnterCrop(); }}
+      onDblTap={(e) => { e.cancelBubble = true; onEnterCrop(); }}
+      onWheel={(e) => {
+        if (!cropMode) return;
+        e.evt.preventDefault();
+        e.cancelBubble = true;
+        const wheelDelta = Math.max(-120, Math.min(120, e.evt.deltaY));
+        const nextScale = Math.max(1, Math.min(3, (layer.crop?.scale || 1) * Math.exp(-wheelDelta * 0.001)));
+        onCropChange({ scale: Number(nextScale.toFixed(3)), offsetX: layer.crop?.offsetX || 0, offsetY: layer.crop?.offsetY || 0 });
+      }}
+      onDragMove={cropMode ? undefined : onDragMove}
+      onDragEnd={cropMode ? undefined : onDragEnd}
+      onTransformEnd={cropMode ? undefined : onTransformEnd}
     >
+      {cropMode && displayImage && (
+        <KonvaImage ref={cropPreviewRef} x={imageX} y={imageY} width={fullWidth} height={fullHeight}
+          image={displayImage} opacity={0.28} listening={false} />
+      )}
       <Group clipFunc={(context) => roundedImagePath(context, layer.width, layer.height, layer.borderRadius || 0)}>
-        <KonvaImage
-          width={layer.width}
-          height={layer.height}
-          image={displayImage || undefined}
-          crop={displayImage ? imageCrop(layer, displayImage) : undefined}
-        />
+        {cropMode && displayImage ? (
+          <KonvaImage
+            x={imageX}
+            y={imageY}
+            width={fullWidth}
+            height={fullHeight}
+            image={displayImage}
+            draggable
+            onDragMove={(e) => {
+              e.cancelBubble = true;
+              e.target.x(Math.max(layer.width - fullWidth, Math.min(0, e.target.x())));
+              e.target.y(Math.max(layer.height - fullHeight, Math.min(0, e.target.y())));
+              cropPreviewRef.current?.position({ x: e.target.x(), y: e.target.y() });
+              cropPreviewRef.current?.getLayer()?.batchDraw();
+            }}
+            onDragEnd={(e) => {
+              e.cancelBubble = true;
+              commitImagePosition(e.target.x(), e.target.y());
+            }}
+          />
+        ) : (
+          <KonvaImage width={layer.width} height={layer.height} image={displayImage || undefined}
+            crop={crop || undefined} />
+        )}
       </Group>
+      {cropMode && (
+        <Rect width={layer.width} height={layer.height} cornerRadius={layer.borderRadius || 0}
+          stroke="#0A84FF" strokeWidth={3} dash={[10, 6]} listening={false} />
+      )}
       {Boolean(layer.stroke?.width) && (
         <Rect
           width={layer.width}
@@ -396,6 +453,10 @@ export function KonvaCanvas() {
 
   // Update Transformer selection for single & multi-select
   useEffect(() => {
+    if (editorMode === 'crop-image') {
+      trRef.current?.nodes([]);
+      return;
+    }
     if (selectedLayerIds.length > 0 && trRef.current && stageRef.current) {
       const selectedNodes: any[] = [];
       selectedLayerIds.forEach((id) => {
@@ -407,7 +468,7 @@ export function KonvaCanvas() {
     } else if (trRef.current) {
       trRef.current.nodes([]);
     }
-  }, [selectedLayerIds, activeSlide, activeLayout, isTemplateEditorMode]);
+  }, [selectedLayerIds, activeSlide, activeLayout, isTemplateEditorMode, editorMode]);
 
   if (!isTemplateEditorMode && !activeSlide) return null;
   if (isTemplateEditorMode && !activeLayout) return null;
@@ -664,7 +725,7 @@ export function KonvaCanvas() {
       id="canvas-viewport"
       ref={viewportRef}
       className={`flex-1 min-h-0 min-w-0 w-full h-full flex items-center justify-center p-2 sm:p-4 lg:p-6 overflow-hidden relative bg-workspace select-none ${
-        editorMode === 'draw-shape' ? 'cursor-crosshair' : ''
+        editorMode === 'draw-shape' ? 'cursor-crosshair' : editorMode === 'crop-image' ? 'cursor-grab' : ''
       }`}
     >
       {/* Floating Canvas Zoom Bar */}
@@ -799,7 +860,13 @@ export function KonvaCanvas() {
                   <ImageNode
                     key={layer.id}
                     layer={layer as ImageLayerNode}
+                    cropMode={editorMode === 'crop-image' && selectedLayerId === layer.id}
                     onSelect={() => setSelectedLayerId(layer.id)}
+                    onEnterCrop={() => {
+                      setSelectedLayerId(layer.id);
+                      setEditorMode('crop-image');
+                    }}
+                    onCropChange={crop => updateLayerNode(layer.id, { crop })}
                     onDragMove={(e) => handleDragMove(e, layer)}
                     onDragEnd={(e) => handleDragEnd(e, layer)}
                     onTransformEnd={(e) => handleTransformEnd(e, layer)}

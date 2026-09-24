@@ -1462,7 +1462,10 @@ export const useCarouselStore = create<CarouselState>()(
       return tpl.layouts.find(l => l.id === state.activeLayoutId) || tpl.layouts[0];
     },
 
-    setView: (view) => set((state) => { state.currentView = view; }),
+    setView: (view) => set((state) => {
+      state.currentView = view;
+      if (view !== 'editor') state.editorMode = 'select';
+    }),
     setEditorMode: (mode) => set((state) => { state.editorMode = mode; }),
     setActiveTool: (tool) => set((state) => { state.activeTool = tool; }),
     setActiveShapeType: (shapeType) => set((state) => { state.activeShapeType = shapeType; }),
@@ -2728,18 +2731,21 @@ export const useCarouselStore = create<CarouselState>()(
 
     // SELECTION MUTATORS
     setSelectedLayerId: (id) => set((state) => {
+      if (state.editorMode === 'crop-image' && id !== state.selectedLayerId) state.editorMode = 'select';
       state.selectedLayerId = id;
       state.selectedLayerIds = id ? [id] : [];
       if (id !== state.editingTextId) state.editingTextId = null;
     }),
 
     setSelectedLayerIds: (ids) => set((state) => {
+      if (state.editorMode === 'crop-image') state.editorMode = 'select';
       state.selectedLayerIds = ids;
       state.selectedLayerId = ids[ids.length - 1] || null;
       if (!ids.includes(state.editingTextId || '')) state.editingTextId = null;
     }),
 
     toggleLayerSelection: (id, isMulti = false, isRange = false) => set((state) => {
+      if (state.editorMode === 'crop-image') state.editorMode = 'select';
       if (isMulti) {
         if (state.selectedLayerIds.includes(id)) {
           state.selectedLayerIds = state.selectedLayerIds.filter((lId) => lId !== id);
@@ -3437,7 +3443,10 @@ export const useCarouselStore = create<CarouselState>()(
       if (container) {
         pushHistorySnapshot(get(), state, 'REMOVE_LAYER');
         container.layers = container.layers.filter(l => l.id !== layerId);
-        if (state.selectedLayerId === layerId) state.selectedLayerId = null;
+        if (state.selectedLayerId === layerId) {
+          state.selectedLayerId = null;
+          if (state.editorMode === 'crop-image') state.editorMode = 'select';
+        }
         if (state.editingTextId === layerId) state.editingTextId = null;
         save();
       }

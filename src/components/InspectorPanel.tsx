@@ -13,7 +13,7 @@ import {
   Layers as LayersIcon, Palette, Sparkles, Download, Eye, EyeOff, ArrowUp, ArrowDown,
   Trash2, Copy, RefreshCw, Image as ImageIcon, Save, Send, Plus, Minus, RotateCw,
   ChevronRight, ChevronDown, Folder, Lock, Unlock, Square, Type, Search, MoreHorizontal,
-  LayoutTemplate
+  LayoutTemplate, Crop, Check, X
 } from 'lucide-react';
 import { TextSlotConstraints, ImageSlotLayerNode } from '../types/schema';
 import { FigmaTypographyControl } from './FigmaTypographyControl';
@@ -69,6 +69,7 @@ export function InspectorPanel() {
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageSuccess, setImageSuccess] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<string | null>(null);
+  const cropStartRef = React.useRef<{ id: string; crop: NonNullable<ImageLayerNode['crop']> } | null>(null);
 
   // Layers Tree Local State
   const [layerSearchQuery, setLayerSearchQuery] = useState('');
@@ -80,6 +81,8 @@ export function InspectorPanel() {
   const activeDocumentId = useCarouselStore((state) => state.activeDocumentId);
   const activeSlideId = useCarouselStore((state) => state.activeSlideId);
   const selectedLayerId = useCarouselStore((state) => state.selectedLayerId);
+  const editorMode = useCarouselStore((state) => state.editorMode);
+  const setEditorMode = useCarouselStore((state) => state.setEditorMode);
   const selectedLayerIds = useCarouselStore((state) => state.selectedLayerIds);
   const setSelectedLayerId = useCarouselStore((state) => state.setSelectedLayerId);
   const setSelectedLayerIds = useCarouselStore((state) => state.setSelectedLayerIds);
@@ -98,6 +101,26 @@ export function InspectorPanel() {
   const moveSelectedLayersZOrder = useCarouselStore((state) => state.moveSelectedLayersZOrder);
 
   const updateLayerNode = useCarouselStore((state) => state.updateLayerNode);
+  const cancelImageCrop = () => {
+    if (cropStartRef.current) {
+      updateLayerNode(cropStartRef.current.id, { crop: cropStartRef.current.crop });
+    }
+    cropStartRef.current = null;
+    setEditorMode('select');
+  };
+
+  useEffect(() => {
+    if (editorMode !== 'crop-image') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') cancelImageCrop();
+      if (event.key === 'Enter') {
+        cropStartRef.current = null;
+        setEditorMode('select');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editorMode, setEditorMode, updateLayerNode]);
   const updateShapeFill = useCarouselStore((state) => state.updateShapeFill);
   const updateShapeFillLive = useCarouselStore((state) => state.updateShapeFillLive);
   const commitShapeFillSnapshot = useCarouselStore((state) => state.commitShapeFillSnapshot);
@@ -210,6 +233,16 @@ export function InspectorPanel() {
   };
 
   const selectedLayer = activeContainer?.layers.find((l) => l.id === selectedLayerId);
+
+  useEffect(() => {
+    if (editorMode !== 'crop-image' || selectedLayer?.type !== 'image') return;
+    if (cropStartRef.current?.id !== selectedLayer.id) {
+      cropStartRef.current = {
+        id: selectedLayer.id,
+        crop: { ...(selectedLayer.crop || { scale: 1, offsetX: 0, offsetY: 0 }) },
+      };
+    }
+  }, [editorMode, selectedLayerId]);
 
 
   // Gradient Stop Local State Selection
@@ -476,7 +509,10 @@ export function InspectorPanel() {
           { id: 'slot', label: 'Slots', icon: LayoutTemplate },
           { id: 'export', label: 'Export', icon: Download },
         ] as const).map(({ id, label, icon: Icon }) => (
-          <button key={id} role="tab" aria-selected={activeTab === id} onClick={() => setActiveTab(id)} title={label}>
+          <button key={id} role="tab" aria-selected={activeTab === id} onClick={() => {
+            if (editorMode === 'crop-image') setEditorMode('select');
+            setActiveTab(id);
+          }} title={label}>
             <Icon size={17} /><span>{label}</span>
           </button>
         ))}
@@ -863,17 +899,32 @@ export function InspectorPanel() {
                       />
                     </div>
                     <div className="space-y-3 border-t border-border-subtle pt-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-semibold text-white">Crop</h3>
-                        <button type="button" className="text-[11px] text-text-secondary hover:text-white"
-                          onClick={() => updateLayerNode(imageLayer.id, { crop: { scale: 1, offsetX: 0, offsetY: 0 } })}>Reset</button>
-                      </div>
-                      <ImageSlider label="Zoom" value={Math.round(crop.scale * 100)} min={100} max={300} unit="%"
-                        onChange={value => updateLayerNode(imageLayer.id, { crop: { ...crop, scale: value / 100 } })} />
-                      <ImageSlider label="Horizontal position" value={Math.round(crop.offsetX * 100)} min={-100} max={100} unit="%"
-                        onChange={value => updateLayerNode(imageLayer.id, { crop: { ...crop, offsetX: value / 100 } })} />
-                      <ImageSlider label="Vertical position" value={Math.round(crop.offsetY * 100)} min={-100} max={100} unit="%"
-                        onChange={value => updateLayerNode(imageLayer.id, { crop: { ...crop, offsetY: value / 100 } })} />
+                      <h3 className="text-xs font-semibold text-white">Crop</h3>
+                      {editorMode === 'crop-image' ? (
+                        <div className="flex gap-2">
+                          <button type="button" className="primary-button flex-1 justify-center text-xs"
+                            onClick={() => { cropStartRef.current = null; setEditorMode('select'); }}>
+                            <Check size={14} /> Done
+                          </button>
+                          <button type="button" className="px-3 py-2 rounded border border-border-default text-xs text-text-secondary hover:text-white"
+                            onClick={cancelImageCrop} title="Cancel crop">
+                            <X size={14} />
+                          </button>
+                          <button type="button" className="px-3 py-2 rounded border border-border-default text-xs text-text-secondary hover:text-white"
+                            onClick={() => updateLayerNode(imageLayer.id, { crop: { scale: 1, offsetX: 0, offsetY: 0 } })}
+                            title="Reset crop">Reset</button>
+                        </div>
+                      ) : (
+                        <button type="button" className="w-full px-3 py-2 rounded border border-border-default bg-surface-elevated text-xs text-white hover:bg-surface-hover flex items-center justify-center gap-2"
+                          disabled={imageLayer.isLocked || !(imageLayer.url || imageLayer.localPreviewUrl)}
+                          onClick={() => {
+                            cropStartRef.current = { id: imageLayer.id, crop: { ...crop } };
+                            setEditorMode('crop-image');
+                          }}
+                          title="Drag image to reposition; scroll to zoom">
+                          <Crop size={15} /> Crop image
+                        </button>
+                      )}
                     </div>
                     <div className="space-y-3 border-t border-border-subtle pt-4">
                       <h3 className="text-xs font-semibold text-white">Frame</h3>
