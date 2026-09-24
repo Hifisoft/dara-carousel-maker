@@ -76,8 +76,19 @@ export interface CarouselDocument {
   };
   slides: SlideSceneNode[];
   globalCreativeDirection: CreativeDirectionConfig;
+  sourceUrl?: string;
+  generatedImages?: GeneratedImageConcept[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface GeneratedImageConcept {
+  id: string;
+  slideId: string;
+  imageUrl: string;
+  prompt: string;
+  model: string;
+  createdAt: string;
 }
 
 export interface SlideSceneNode {
@@ -204,6 +215,18 @@ export interface ImageLayerNode extends BaseLayerNode {
     offsetY: number;
   };
   borderRadius: number;
+  stroke?: {
+    color: string;
+    width: number;
+  };
+  adjustments?: {
+    exposure: number;
+    contrast: number;
+    saturation: number;
+    temperature: number;
+    highlights: number;
+    shadows: number;
+  };
 }
 
 export interface ImageSlotLayerNode extends BaseLayerNode {
@@ -217,6 +240,7 @@ export interface ImageSlotLayerNode extends BaseLayerNode {
   fallbackUrl?: string;
   url?: string;
   assignedMediaUrl?: string;
+  prompt?: string;
   slotId?: string;
   slotLabel?: string;
 }
@@ -300,7 +324,10 @@ export interface AISettings {
     copy: string;
     prompt: string;
     image: string;
-    upscale: string;
+  };
+  instructions: {
+    copy: string;
+    image: string;
   };
 }
 

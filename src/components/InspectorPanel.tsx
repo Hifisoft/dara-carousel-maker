@@ -13,10 +13,39 @@ import {
   Layers as LayersIcon, Palette, Sparkles, Download, Eye, EyeOff, ArrowUp, ArrowDown,
   Trash2, Copy, RefreshCw, Image as ImageIcon, Save, Send, Plus, Minus, RotateCw,
   ChevronRight, ChevronDown, Folder, Lock, Unlock, Square, Type, Search, MoreHorizontal,
-  LayoutTemplate
+  LayoutTemplate, Crop, Check, X
 } from 'lucide-react';
 import { TextSlotConstraints, ImageSlotLayerNode } from '../types/schema';
 import { FigmaTypographyControl } from './FigmaTypographyControl';
+import { DEFAULT_AI_ROUTING, IMAGE_MODELS } from '../lib/aiModels';
+
+function ImageSlider({ label, value, min, max, step = 1, unit = '', onChange }: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  unit?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="flex items-center justify-between text-[11px] font-semibold text-text-secondary">
+        <span>{label}</span><span className="font-mono text-white">{value}{unit}</span>
+      </span>
+      <input
+        type="range"
+        aria-label={label}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={event => onChange(Number(event.target.value))}
+        className="w-full accent-accent-blue"
+      />
+    </label>
+  );
+}
 
 export function InspectorPanel() {
   const [activeTab, setActiveTab] = useState<'design' | 'slot' | 'ai' | 'layers' | 'export'>('design');
@@ -36,9 +65,11 @@ export function InspectorPanel() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageStyle, setImageStyle] = useState('Cinematic Photography');
+  const [imageModel, setImageModel] = useState<string>(DEFAULT_AI_ROUTING.image);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageSuccess, setImageSuccess] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<string | null>(null);
+  const cropStartRef = React.useRef<{ id: string; crop: NonNullable<ImageLayerNode['crop']> } | null>(null);
 
   // Layers Tree Local State
   const [layerSearchQuery, setLayerSearchQuery] = useState('');
@@ -50,6 +81,8 @@ export function InspectorPanel() {
   const activeDocumentId = useCarouselStore((state) => state.activeDocumentId);
   const activeSlideId = useCarouselStore((state) => state.activeSlideId);
   const selectedLayerId = useCarouselStore((state) => state.selectedLayerId);
+  const editorMode = useCarouselStore((state) => state.editorMode);
+  const setEditorMode = useCarouselStore((state) => state.setEditorMode);
   const selectedLayerIds = useCarouselStore((state) => state.selectedLayerIds);
   const setSelectedLayerId = useCarouselStore((state) => state.setSelectedLayerId);
   const setSelectedLayerIds = useCarouselStore((state) => state.setSelectedLayerIds);
@@ -68,6 +101,27 @@ export function InspectorPanel() {
   const moveSelectedLayersZOrder = useCarouselStore((state) => state.moveSelectedLayersZOrder);
 
   const updateLayerNode = useCarouselStore((state) => state.updateLayerNode);
+  const addEmptyImageLayer = useCarouselStore((state) => state.addEmptyImageLayer);
+  const cancelImageCrop = () => {
+    if (cropStartRef.current) {
+      updateLayerNode(cropStartRef.current.id, { crop: cropStartRef.current.crop });
+    }
+    cropStartRef.current = null;
+    setEditorMode('select');
+  };
+
+  useEffect(() => {
+    if (editorMode !== 'crop-image') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') cancelImageCrop();
+      if (event.key === 'Enter') {
+        cropStartRef.current = null;
+        setEditorMode('select');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editorMode, setEditorMode, updateLayerNode]);
   const updateShapeFill = useCarouselStore((state) => state.updateShapeFill);
   const updateShapeFillLive = useCarouselStore((state) => state.updateShapeFillLive);
   const commitShapeFillSnapshot = useCarouselStore((state) => state.commitShapeFillSnapshot);
@@ -84,6 +138,8 @@ export function InspectorPanel() {
   const reorderLayer = useCarouselStore((state) => state.reorderLayer);
   const updateSlideBg = useCarouselStore((state) => state.updateSlideBg);
   const generateSlideImage = useCarouselStore((state) => state.generateSlideImage);
+  const applyImageConcept = useCarouselStore((state) => state.applyImageConcept);
+  const configuredImageModel = useCarouselStore((state) => state.settings.routing.image);
   const setSlideImageUrl = useCarouselStore((state) => state.setSlideImageUrl);
 
   const isTemplateEditorMode = useCarouselStore((state) => state.isTemplateEditorMode);
@@ -94,6 +150,8 @@ export function InspectorPanel() {
   const activeLayout = getActiveMasterLayout();
 
   const activeContainer = isTemplateEditorMode ? activeLayout : activeSlide;
+
+  useEffect(() => setImageModel(configuredImageModel), [configuredImageModel]);
 
   const isLogo = (l: LayerNode) =>
     l.type === 'logo' ||
@@ -148,7 +206,8 @@ export function InspectorPanel() {
 
     try {
       const p = customPromptToUse || promptText;
-      const res = await generateSlideImage(activeSlide.id, p, imageStyle);
+      const targetLayerId = selectedLayer?.type === 'image' || selectedLayer?.type === 'image-slot' ? selectedLayer.id : undefined;
+      const res = await generateSlideImage(activeSlide.id, p, imageStyle, imageModel, targetLayerId);
       if (res?.optimizedPrompt) {
         setPromptText(res.optimizedPrompt);
       }
@@ -164,6 +223,14 @@ export function InspectorPanel() {
 
   const handleRemoveSlideImage = () => {
     if (!activeSlide) return;
+    if (selectedLayer?.type === 'image') {
+      updateLayerNode(selectedLayer.id, { url: '', localPreviewUrl: undefined, status: 'empty' });
+      return;
+    }
+    if (selectedLayer?.type === 'image-slot') {
+      updateLayerNode(selectedLayer.id, { assignedMediaUrl: undefined, url: undefined, fallbackUrl: undefined });
+      return;
+    }
     const slotLayer = activeSlide.layers.find((l) => l.type === 'image-slot');
     if (slotLayer) {
       updateLayerNode(slotLayer.id, { assignedMediaUrl: undefined, url: undefined } as any);
@@ -176,6 +243,16 @@ export function InspectorPanel() {
   };
 
   const selectedLayer = activeContainer?.layers.find((l) => l.id === selectedLayerId);
+
+  useEffect(() => {
+    if (editorMode !== 'crop-image' || selectedLayer?.type !== 'image') return;
+    if (cropStartRef.current?.id !== selectedLayer.id) {
+      cropStartRef.current = {
+        id: selectedLayer.id,
+        crop: { ...(selectedLayer.crop || { scale: 1, offsetX: 0, offsetY: 0 }) },
+      };
+    }
+  }, [editorMode, selectedLayerId]);
 
 
   // Gradient Stop Local State Selection
@@ -432,64 +509,23 @@ export function InspectorPanel() {
   };
 
   return (
-    <div className="w-full lg:w-[340px] bg-surface border-t lg:border-t-0 lg:border-l border-border-default flex flex-col h-full overflow-hidden z-20">
+    <div className="studio-inspector w-full bg-surface border-t lg:border-t-0 lg:border-l border-border-default flex flex-col h-full overflow-hidden z-20">
       {/* Tab Navigation Header */}
-      <div className="flex border-b border-border-default bg-surface-elevated">
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'design'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('design')}
-        >
-          <Palette className="w-3.5 h-3.5" />
-          Design
-        </button>
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'slot'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('slot')}
-        >
-          <LayoutTemplate className="w-3.5 h-3.5" />
-          Slot
-        </button>
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'ai'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('ai')}
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          Creative AI
-        </button>
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'layers'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('layers')}
-        >
-          <LayersIcon className="w-3.5 h-3.5" />
-          Layers
-        </button>
-        <button
-          className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1 transition-colors border-b-2 ${
-            activeTab === 'export'
-              ? 'text-white border-accent-blue bg-surface'
-              : 'text-text-secondary hover:text-white border-transparent'
-          }`}
-          onClick={() => setActiveTab('export')}
-        >
-          <Download className="w-3.5 h-3.5" />
-          Export
-        </button>
+      <div className="inspector-tabs" role="tablist" aria-label="Inspector">
+        {([
+          { id: 'design', label: 'Design', icon: Palette },
+          { id: 'layers', label: 'Layers', icon: LayersIcon },
+          { id: 'ai', label: 'Create', icon: Sparkles },
+          { id: 'slot', label: 'Slots', icon: LayoutTemplate },
+          { id: 'export', label: 'Export', icon: Download },
+        ] as const).map(({ id, label, icon: Icon }) => (
+          <button key={id} role="tab" aria-selected={activeTab === id} onClick={() => {
+            if (editorMode === 'crop-image') setEditorMode('select');
+            setActiveTab(id);
+          }} title={label}>
+            <Icon size={17} /><span>{label}</span>
+          </button>
+        ))}
       </div>
 
       {/* Main Content Area */}
@@ -837,8 +873,13 @@ export function InspectorPanel() {
                 )}
 
                 {/* IMAGE LAYER CONTROLS */}
-                {selectedLayer.type === 'image' && (
-                  <div className="space-y-3">
+                {selectedLayer.type === 'image' && (() => {
+                  const imageLayer = selectedLayer as ImageLayerNode;
+                  const crop = imageLayer.crop || { scale: 1, offsetX: 0, offsetY: 0 };
+                  const adjustments = imageLayer.adjustments || {
+                    exposure: 0, contrast: 0, saturation: 0, temperature: 0, highlights: 0, shadows: 0,
+                  };
+                  return <div className="space-y-5">
                     <button
                       className="w-full py-2 bg-gradient-to-r from-purple-600 to-accent-blue hover:opacity-95 text-white text-xs font-semibold rounded flex items-center justify-center gap-1.5 shadow transition-all disabled:opacity-50"
                       onClick={() => handleTriggerImageGeneration()}
@@ -863,25 +904,69 @@ export function InspectorPanel() {
                       <input
                         type="text"
                         className="w-full bg-surface-elevated border border-border-default rounded px-2.5 py-1.5 text-xs text-white outline-none focus:border-border-focus font-mono"
-                        value={(selectedLayer as ImageLayerNode).url || ''}
+                        value={imageLayer.url || ''}
                         onChange={(e) => updateLayerNode(selectedLayer.id, { url: e.target.value })}
                       />
                     </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-text-secondary uppercase mb-1">
-                        Corner Radius (px)
-                      </label>
-                      <input
-                        type="range"
-                        min={0}
-                        max={60}
-                        className="w-full accent-accent-blue"
-                        value={(selectedLayer as ImageLayerNode).borderRadius || 0}
-                        onChange={(e) => updateLayerNode(selectedLayer.id, { borderRadius: Number(e.target.value) })}
-                      />
+                    <div className="space-y-3 border-t border-border-subtle pt-4">
+                      <h3 className="text-xs font-semibold text-white">Crop</h3>
+                      {editorMode === 'crop-image' ? (
+                        <div className="flex gap-2">
+                          <button type="button" className="primary-button flex-1 justify-center text-xs"
+                            onClick={() => { cropStartRef.current = null; setEditorMode('select'); }}>
+                            <Check size={14} /> Done
+                          </button>
+                          <button type="button" className="px-3 py-2 rounded border border-border-default text-xs text-text-secondary hover:text-white"
+                            onClick={cancelImageCrop} title="Cancel crop">
+                            <X size={14} />
+                          </button>
+                          <button type="button" className="px-3 py-2 rounded border border-border-default text-xs text-text-secondary hover:text-white"
+                            onClick={() => updateLayerNode(imageLayer.id, { crop: { scale: 1, offsetX: 0, offsetY: 0 } })}
+                            title="Reset crop">Reset</button>
+                        </div>
+                      ) : (
+                        <button type="button" className="w-full px-3 py-2 rounded border border-border-default bg-surface-elevated text-xs text-white hover:bg-surface-hover flex items-center justify-center gap-2"
+                          disabled={imageLayer.isLocked || !(imageLayer.url || imageLayer.localPreviewUrl)}
+                          onClick={() => {
+                            cropStartRef.current = { id: imageLayer.id, crop: { ...crop } };
+                            setEditorMode('crop-image');
+                          }}
+                          title="Drag image to reposition; scroll to zoom">
+                          <Crop size={15} /> Crop image
+                        </button>
+                      )}
                     </div>
-                  </div>
-                )}
+                    <div className="space-y-3 border-t border-border-subtle pt-4">
+                      <h3 className="text-xs font-semibold text-white">Frame</h3>
+                      <ImageSlider label="Corner radius" value={imageLayer.borderRadius || 0} min={0}
+                        max={Math.max(1, Math.round(Math.min(imageLayer.width, imageLayer.height) / 2))} unit=" px"
+                        onChange={value => updateLayerNode(imageLayer.id, { borderRadius: value })} />
+                      <ImageSlider label="Stroke size" value={imageLayer.stroke?.width || 0} min={0} max={40} unit=" px"
+                        onChange={value => updateLayerNode(imageLayer.id, { stroke: { color: imageLayer.stroke?.color || '#FFFFFF', width: value } })} />
+                      {(imageLayer.stroke?.width || 0) > 0 && <label className="flex items-center justify-between text-[11px] font-semibold text-text-secondary">
+                        Stroke color
+                        <input type="color" aria-label="Stroke color" value={imageLayer.stroke?.color || '#FFFFFF'}
+                          onChange={event => updateLayerNode(imageLayer.id, { stroke: { color: event.target.value, width: imageLayer.stroke?.width || 0 } })}
+                          className="h-8 w-10 cursor-pointer rounded border border-border-default bg-transparent p-0" />
+                      </label>}
+                    </div>
+                    <div className="space-y-3 border-t border-border-subtle pt-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-semibold text-white">Adjustments</h3>
+                        <button type="button" className="text-[11px] text-text-secondary hover:text-white"
+                          onClick={() => updateLayerNode(imageLayer.id, { adjustments: {
+                            exposure: 0, contrast: 0, saturation: 0, temperature: 0, highlights: 0, shadows: 0,
+                          } })}>Reset</button>
+                      </div>
+                      {(['exposure', 'contrast', 'saturation', 'temperature', 'highlights', 'shadows'] as const).map(key => (
+                        <ImageSlider key={key} label={key[0].toUpperCase() + key.slice(1)} value={adjustments[key] || 0}
+                          min={key === 'exposure' ? -2 : -100} max={key === 'exposure' ? 2 : 100}
+                          step={key === 'exposure' ? 0.1 : 1}
+                          onChange={value => updateLayerNode(imageLayer.id, { adjustments: { ...adjustments, [key]: value } })} />
+                      ))}
+                    </div>
+                  </div>;
+                })()}
 
                 {/* SHAPE LAYER CONTROLS & GRADIENT UI ENGINE */}
                 {selectedLayer.type === 'shape' && (
@@ -1305,7 +1390,8 @@ export function InspectorPanel() {
         {/* CREATIVE AI TAB */}
         {activeTab === 'ai' && (() => {
           const slideIdx = activeDoc?.slides.findIndex(s => s.id === activeSlideId) ?? 0;
-          const existingImgLayer = activeSlide?.layers.find(
+          const targetImageLayer = selectedLayer?.type === 'image' || selectedLayer?.type === 'image-slot' ? selectedLayer : undefined;
+          const existingImgLayer = targetImageLayer || activeSlide?.layers.find(
             (l) => ((l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))) && !isLogo(l)
           );
           const existingImgUrl = (existingImgLayer as any)?.assignedMediaUrl || (existingImgLayer as any)?.url || (existingImgLayer as any)?.localPreviewUrl;
@@ -1332,6 +1418,13 @@ export function InspectorPanel() {
                     {imageStyle}
                   </span>
                 </div>
+
+                <label className="block text-[10px] font-semibold text-text-secondary uppercase">
+                  Image model
+                  <select className="mt-1.5 w-full bg-surface border border-border-default rounded px-2 py-1.5 text-xs text-white" value={imageModel} onChange={event => setImageModel(event.target.value)}>
+                    {IMAGE_MODELS.map(model => <option key={model.id} value={model.id}>{model.label}</option>)}
+                  </select>
+                </label>
 
                 {/* Visual Style Selector */}
                 <div>
@@ -1387,6 +1480,9 @@ export function InspectorPanel() {
                 )}
 
                 {/* Primary Generate Trigger Button */}
+                {targetImageLayer && <div className="text-[11px] text-text-secondary truncate" title={targetImageLayer.name}>
+                  Destination: <span className="text-white font-medium">{targetImageLayer.name}</span>
+                </div>}
                 <button
                   className="w-full py-2.5 px-3 bg-gradient-to-r from-purple-600 via-accent-blue to-cyan-500 hover:opacity-95 text-white text-xs font-bold rounded-md flex items-center justify-center gap-2 shadow-lg transition-all disabled:opacity-50 cursor-pointer"
                   onClick={() => handleTriggerImageGeneration()}
@@ -1400,7 +1496,7 @@ export function InspectorPanel() {
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 text-yellow-300" />
-                      <span>Generate Slide #{slideIdx + 1} Image</span>
+                      <span>{targetImageLayer ? 'Generate into selected layer' : `Generate Slide #${slideIdx + 1} Image`}</span>
                     </>
                   )}
                 </button>
@@ -1475,6 +1571,25 @@ export function InspectorPanel() {
                   </div>
                 </div>
               )}
+
+              <section className="image-concept-library" aria-label="Generated image library">
+                <div className="image-concept-heading">
+                  <h3>Image library</h3>
+                  <span>{activeDoc?.generatedImages?.length || 0} concepts</span>
+                </div>
+                {activeDoc?.generatedImages?.length ? (
+                  <div className="image-concept-grid">
+                    {[...activeDoc.generatedImages].reverse().map(concept => (
+                      <button key={concept.id} className={`image-concept-item ${existingImgUrl === concept.imageUrl ? 'is-active' : ''}`}
+                        onClick={() => { if (activeSlide) applyImageConcept(concept.id, activeSlide.id, targetImageLayer?.id); }}
+                        title={`${concept.model} · ${concept.prompt}`} aria-label={`Use ${concept.model} concept from slide ${activeDoc.slides.findIndex(slide => slide.id === concept.slideId) + 1}`}>
+                        <img src={concept.imageUrl} alt="" />
+                        <span>Slide {activeDoc.slides.findIndex(slide => slide.id === concept.slideId) + 1}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : <p className="image-concept-empty">Generated concepts for this carousel will appear here.</p>}
+              </section>
 
               {/* Refine Visuals via Chat */}
               <div className="bg-surface-elevated rounded-lg border border-border-default p-3 space-y-3">
@@ -1551,6 +1666,11 @@ export function InspectorPanel() {
             </div>
 
             {/* Quick Action Bar (Group, Ungroup, Delete, Duplicate) */}
+            <button type="button"
+              className="w-full py-2 px-3 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-xs font-semibold text-white flex items-center justify-center gap-2"
+              onClick={() => addEmptyImageLayer()} disabled={!activeContainer}>
+              <Plus size={15} /> New image layer
+            </button>
             <div className="grid grid-cols-4 gap-1 pt-0.5">
               <button
                 className="py-1 px-1.5 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-[10px] font-semibold text-text-secondary hover:text-white flex items-center justify-center gap-1 disabled:opacity-30"
