@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 import {
   Search, Trash2, LayoutGrid, Plus, Sparkles, Layers,
   Type, Image as ImageIcon, Square, Layout, X, Play,
-  AlertCircle, Sliders, Upload, RefreshCw, ZoomIn, ZoomOut, Link2,
+  AlertCircle, Sliders, Upload, RefreshCw, ZoomIn, ZoomOut,
   Copy, Circle, Minus, LayoutTemplate, Layers2
 } from 'lucide-react';
 
@@ -21,7 +21,6 @@ import { SaveAsTemplateModal } from '../components/SaveAsTemplateModal';
 import { ExportModal } from '../components/ExportModal';
 import { SlidePreview } from '../components/SlidePreview';
 import { AISettingsPanel } from '../components/AISettingsPanel';
-import { InstagramImportModal } from '../components/InstagramImportModal';
 
 export default function AppMain() {
   const currentView = useCarouselStore((state) => state.currentView);
@@ -93,7 +92,6 @@ export default function AppMain() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState('updated');
   const [templateFilter, setTemplateFilter] = useState('all');
-  const [isImportOpen, setIsImportOpen] = useState(false);
 
   // Native File Picker Ref for Image Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -320,7 +318,6 @@ export default function AppMain() {
               <p>{documents.length} {documents.length === 1 ? 'carousel' : 'carousels'} in your workspace</p>
             </div>
             <div className="library-controls">
-              <button className="secondary-button library-import" onClick={() => setIsImportOpen(true)}><Link2 size={14} /> Import URL</button>
               <div className="library-search">
                 <Search />
                 <input aria-label="Search carousels" placeholder="Search carousels" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
@@ -1059,7 +1056,6 @@ export default function AppMain() {
       {currentView === 'settings' && <AISettingsPanel />}
 
       <NewCarouselModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
-      <InstagramImportModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
 
       {/* NEW TEMPLATE CREATION MODAL */}
       {isNewTemplateModalOpen && (

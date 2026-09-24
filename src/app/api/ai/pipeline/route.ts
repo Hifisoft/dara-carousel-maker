@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DEFAULT_AI_ROUTING, isTextModel } from '../../../../lib/aiModels';
+import { DEFAULT_AI_ROUTING, isCopyModel } from '../../../../lib/aiModels';
 
 export interface AIPipelineRequest {
   idempotencyKey: string;
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
     if (typeof body.topic !== 'string' || !body.topic.trim() || typeof body.idempotencyKey !== 'string') {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
     }
-    if (body.model !== undefined && !isTextModel(body.model)) {
+    if (body.model !== undefined && !isCopyModel(body.model)) {
       return NextResponse.json({ error: 'Unsupported copy model' }, { status: 400 });
     }
 

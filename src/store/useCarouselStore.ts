@@ -10,7 +10,7 @@ import {
   saveTemplateToIDB, getAllTemplatesFromIDB, deleteTemplateFromIDB
 } from '../lib/idb';
 import { autoSizeTextLayer } from '../lib/textEngine';
-import { DEFAULT_AI_ROUTING, isImageModel, isTextModel } from '../lib/aiModels';
+import { DEFAULT_AI_ROUTING, isCopyModel, isDirectionModel, isImageModel } from '../lib/aiModels';
 
 
 interface HistorySnapshot {
@@ -3503,8 +3503,8 @@ export const useCarouselStore = create<CarouselState>()(
       try {
         const saved = JSON.parse(localStorage.getItem('dara-ai-settings-v1') || '{}');
         set(state => {
-          state.settings.routing.copy = isTextModel(saved.routing?.copy) ? saved.routing.copy : DEFAULT_AI_ROUTING.copy;
-          state.settings.routing.prompt = isTextModel(saved.routing?.prompt) ? saved.routing.prompt : DEFAULT_AI_ROUTING.prompt;
+          state.settings.routing.copy = isCopyModel(saved.routing?.copy) ? saved.routing.copy : DEFAULT_AI_ROUTING.copy;
+          state.settings.routing.prompt = isDirectionModel(saved.routing?.prompt) ? saved.routing.prompt : DEFAULT_AI_ROUTING.prompt;
           state.settings.routing.image = isImageModel(saved.routing?.image) ? saved.routing.image : DEFAULT_AI_ROUTING.image;
           state.settings.instructions.copy = typeof saved.instructions?.copy === 'string' ? saved.instructions.copy.slice(0, 20000) : '';
           state.settings.instructions.image = typeof saved.instructions?.image === 'string' ? saved.instructions.image.slice(0, 20000) : '';
@@ -3517,8 +3517,8 @@ export const useCarouselStore = create<CarouselState>()(
     updateAISettings: (routing, instructions) => {
       const next = {
         routing: {
-          copy: isTextModel(routing.copy) ? routing.copy : DEFAULT_AI_ROUTING.copy,
-          prompt: isTextModel(routing.prompt) ? routing.prompt : DEFAULT_AI_ROUTING.prompt,
+          copy: isCopyModel(routing.copy) ? routing.copy : DEFAULT_AI_ROUTING.copy,
+          prompt: isDirectionModel(routing.prompt) ? routing.prompt : DEFAULT_AI_ROUTING.prompt,
           image: isImageModel(routing.image) ? routing.image : DEFAULT_AI_ROUTING.image,
         },
         instructions: {

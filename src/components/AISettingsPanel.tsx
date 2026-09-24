@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Check, FileText, Upload } from 'lucide-react';
 import { useCarouselStore } from '../store/useCarouselStore';
-import { IMAGE_MODELS, TEXT_MODELS } from '../lib/aiModels';
+import { COPY_MODELS, DIRECTION_MODELS, IMAGE_MODELS } from '../lib/aiModels';
 
 export function AISettingsPanel() {
   const settings = useCarouselStore(state => state.settings);
@@ -39,8 +39,8 @@ export function AISettingsPanel() {
           <h2 id="model-routing-title">Task routing</h2>
           <div className="ai-routing-list">
             {([
-              { key: 'copy', label: 'Carousel copy', detail: 'Research, outline, and slide text', options: TEXT_MODELS },
-              { key: 'prompt', label: 'Visual direction', detail: 'Turn slide text into an image prompt', options: TEXT_MODELS },
+              { key: 'copy', label: 'Carousel copy', detail: 'Research, outline, and slide text', options: COPY_MODELS },
+              { key: 'prompt', label: 'Visual direction', detail: 'Turn slide text into an image prompt', options: DIRECTION_MODELS },
               { key: 'image', label: 'Image generation', detail: 'Create the final image asset', options: IMAGE_MODELS },
             ] as const).map(task => (
               <label className="ai-routing-row" key={task.key}>
@@ -51,7 +51,8 @@ export function AISettingsPanel() {
               </label>
             ))}
           </div>
-          <p className="ai-settings-note">Copy and visual direction require <code>GEMINI_API_KEY</code> on the server. Image generation uses Pollinations; availability depends on its service.</p>
+          <p className="ai-settings-note">Server keys: <code>GEMINI_API_KEY</code> for copy and Gemini images, <code>OPENAI_API_KEY</code> for ChatGPT, <code>DEEPSEEK_API_KEY</code> for DeepSeek, and <code>XAI_API_KEY</code> for Grok.</p>
+          <p className="ai-settings-note">Gemini 3.5 Flash is text-only; Gemini image generation uses 3.1 Flash Image.</p>
         </section>
 
         <section className="ai-settings-section" aria-labelledby="instructions-title">

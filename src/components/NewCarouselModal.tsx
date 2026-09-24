@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
-import { X, Sparkles, Loader2 } from 'lucide-react';
+import { X, Sparkles, Loader2, Link2, PenLine } from 'lucide-react';
 import { SlidePreview } from './SlidePreview';
+import { InstagramImportForm } from './InstagramImportForm';
 
 interface NewCarouselModalProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [operation, setOperation] = useState<'ai' | 'draft'>('ai');
   const [error, setError] = useState('');
+  const [creationMode, setCreationMode] = useState<'idea' | 'instagram'>('idea');
   const template = templates.find(item => item.id === templateId) || templates.find(item => item.isDefault) || templates[0];
   const layout = template?.layouts.find(item => item.role === 'cover') || template?.layouts[0];
   const preview = layout && {
@@ -30,6 +32,11 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
   };
 
   if (!isOpen) return null;
+
+  const closeModal = () => {
+    setCreationMode('idea');
+    onClose();
+  };
 
   const handleSubmit = async (mode: 'ai' | 'draft') => {
     if (!prompt.trim() || !template) return;
@@ -48,7 +55,7 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
         aiCopy = data;
       }
       await createDocument(aiCopy?.title || prompt.trim(), prompt.trim(), slideCount, template.id, aiCopy);
-      onClose();
+      closeModal();
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
     } finally {
@@ -60,9 +67,9 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
     <div className="studio-dialog-backdrop fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="studio-dialog creation-dialog" role="dialog" aria-modal="true" aria-labelledby="new-carousel-title"
         onKeyDown={event => {
-          if (event.key === 'Escape' && !isGenerating) onClose();
+          if (event.key === 'Escape' && !isGenerating) closeModal();
           if (event.key === 'Tab') {
-            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea:not(:disabled), select:not(:disabled)'));
+            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea:not(:disabled), select:not(:disabled), input:not(:disabled):not([type=file])'));
             const first = focusable[0], last = focusable[focusable.length - 1];
             if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
             if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -70,8 +77,13 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
         }}>
         <div className="dialog-heading">
           <h2 id="new-carousel-title">New carousel</h2>
-          <button className="icon-button" onClick={onClose} disabled={isGenerating} aria-label="Close new carousel" title="Close"><X size={18} /></button>
+          <button className="icon-button" onClick={closeModal} disabled={isGenerating} aria-label="Close new carousel" title="Close"><X size={18} /></button>
         </div>
+        <div className="creation-mode" role="tablist" aria-label="New carousel source">
+          <button role="tab" aria-selected={creationMode === 'idea'} className={creationMode === 'idea' ? 'is-selected' : ''} onClick={() => setCreationMode('idea')}><PenLine size={14} /> Start with an idea</button>
+          <button role="tab" aria-selected={creationMode === 'instagram'} className={creationMode === 'instagram' ? 'is-selected' : ''} onClick={() => setCreationMode('instagram')}><Link2 size={14} /> Repurpose Instagram</button>
+        </div>
+        {creationMode === 'idea' ? <>
         <div className="creation-layout">
           <div className="creation-fields">
             <label htmlFor="carousel-topic">What is your story about?</label>
@@ -97,10 +109,11 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
         {isGenerating && <div className="operation-message" role="status"><Loader2 size={15} className="animate-spin" />{operation === 'ai' ? 'Writing your carousel...' : 'Creating your draft...'}</div>}
         {error && <div className="operation-error" role="alert">{error}</div>}
         <div className="dialog-actions">
-          <button className="cancel-action" onClick={onClose} disabled={isGenerating}>Cancel</button>
+          <button className="cancel-action" onClick={closeModal} disabled={isGenerating}>Cancel</button>
           <button className="secondary-button" onClick={() => handleSubmit('draft')} disabled={isGenerating || !prompt.trim() || !template}>Create draft</button>
           <button className="primary-button" onClick={() => handleSubmit('ai')} disabled={isGenerating || !prompt.trim() || !template}><Sparkles size={14} />{isGenerating && operation === 'ai' ? 'Writing...' : 'Generate with AI'}</button>
         </div>
+        </> : <InstagramImportForm onClose={closeModal} />}
       </div>
     </div>
   );

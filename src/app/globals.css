@@ -100,7 +100,6 @@ button { transition: background-color 150ms ease, color 150ms ease, opacity 150m
 .library-heading h1 { font-size: 32px; line-height: 1.2; font-weight: 650; margin-bottom: 9px; }
 .library-heading p { color: #93939a; font-size: 13px; }
 .library-controls { display: flex; align-items: center; gap: 12px; }
-.library-import { height: 35px; white-space: nowrap; font-size: 12px; padding: 0 11px; }
 .library-search { position: relative; width: 230px; }
 .library-search svg { position: absolute; left: 11px; top: 10px; color: #93939a; width: 15px; height: 15px; }
 .library-search input { height: 35px; width: 100%; padding: 0 12px 0 34px; font-size: 12px; background: #28282b; border: 1px solid #ffffff09; border-radius: 7px; }
@@ -176,6 +175,9 @@ button { transition: background-color 150ms ease, color 150ms ease, opacity 150m
 .creation-dialog { width: min(720px, 100%); padding: 26px; }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .dialog-heading h2 { font-size: 20px; }
+.creation-mode { display: flex; gap: 3px; padding: 3px; background: #202023; border-radius: 7px; margin-bottom: 24px; }
+.creation-mode button { flex: 1; min-width: 0; height: 36px; display: flex; align-items: center; justify-content: center; gap: 7px; border-radius: 5px; color: #a6a6ae; font-size: 12px; }
+.creation-mode button.is-selected { background: #3a3a3e; color: #f5f5f7; box-shadow: 0 1px 5px #0004; }
 .creation-layout { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 28px; }
 .creation-preview { padding: 16px; background: #202023; border-radius: 6px; align-self: start; }
 .creation-preview .slide-preview { box-shadow: 0 5px 15px #0005; }
@@ -188,10 +190,9 @@ button { transition: background-color 150ms ease, color 150ms ease, opacity 150m
 .dialog-actions .cancel-action { margin-right: auto; color: #a6a6ad; font-size: 12px; }
 .operation-message { display: flex; align-items: center; gap: 8px; padding: 12px; font-size: 12px; color: #7dbbff; background: #0a84ff12; border-radius: 6px; margin-top: 18px; }
 .operation-error { padding: 12px; font-size: 12px; line-height: 1.5; color: #ffb1ae; background: #ff453a10; border: 1px solid #ff453a26; border-radius: 6px; margin-top: 18px; }
-.instagram-dialog { width: min(520px, 100%); padding: 26px; }
-.instagram-dialog > label { display: block; font-size: 12px; margin-bottom: 8px; }
-.instagram-dialog > input { width: 100%; height: 40px; border: 1px solid #ffffff18; border-radius: 6px; padding: 0 12px; color: #f5f5f7; font-size: 13px; }
-.instagram-dialog > p { margin-top: 12px; color: #a6a6ae; font-size: 12px; line-height: 1.5; }
+.instagram-import-form > label { display: block; font-size: 12px; margin-bottom: 8px; }
+.instagram-import-form > input { width: 100%; height: 40px; border: 1px solid #ffffff18; border-radius: 6px; padding: 0 12px; color: #f5f5f7; font-size: 13px; }
+.instagram-import-form > p { margin-top: 12px; color: #a6a6ae; font-size: 12px; line-height: 1.5; }
 .instagram-upload-row { margin-top: 20px; }
 .instagram-upload-row .secondary-button { height: 35px; font-size: 12px; }
 .ai-settings-page { padding: 112px 32px 56px; }
@@ -235,7 +236,7 @@ button { transition: background-color 150ms ease, color 150ms ease, opacity 150m
 @media (max-width: 650px) {
   .studio-header { height: 64px; padding: 0 14px; } .studio-navigation { display: none; } .mobile-navigation-toggle { display: flex; }
   .studio-wordmark { font-size: 15px; gap: 7px; } .brand-symbol { width: 29px; height: 29px; } .header-actions { gap: 6px; } .primary-button { height: 33px; padding: 0 11px; font-size: 11px; }
-  .library-page { padding: 96px 18px 32px; } .library-heading { display: block; margin-bottom: 24px; } .library-heading h1 { font-size: 28px; } .library-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 24px; gap: 8px; } .library-import, .library-search, .library-sort { width: 100%; max-width: none; min-width: 0; } .library-search { grid-column: 1 / -1; grid-row: 1; } .library-import { grid-column: 1 / -1; }
+  .library-page { padding: 96px 18px 32px; } .library-heading { display: block; margin-bottom: 24px; } .library-heading h1 { font-size: 28px; } .library-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 24px; gap: 8px; } .library-search, .library-sort { width: 100%; max-width: none; min-width: 0; } .library-search { grid-column: 1 / -1; grid-row: 1; }
   .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 14px; } .project-stage { padding: 18px 22px; } .project-info h3 { font-size: 12px; } .project-info p { font-size: 10px; flex-wrap: wrap; gap: 4px; } .project-info time { display: none; } .project-info .subtitle-dot { display: none; } .project-delete { opacity: 1; width: 24px; height: 24px; }
   .is-editing .header-leading { width: 28px; } .library-back span { display: none; } .document-heading { position: static; transform: none; width: auto; flex: 1; min-width: 0; align-items: flex-start; } .document-heading strong { font-size: 12px; } .document-subtitle { font-size: 9px; } .history-controls { display: none; } .save-template-action { display: none; }
   .editor-main { padding-top: 64px !important; } .tool-rail { width: 48px !important; padding-top: 12px !important; gap: 5px !important; } .tool-rail > button, .tool-rail > div > button { width: 38px; height: 48px; }

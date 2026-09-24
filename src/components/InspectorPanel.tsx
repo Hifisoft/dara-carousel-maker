@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { TextSlotConstraints, ImageSlotLayerNode } from '../types/schema';
 import { FigmaTypographyControl } from './FigmaTypographyControl';
-import { IMAGE_MODELS } from '../lib/aiModels';
+import { DEFAULT_AI_ROUTING, IMAGE_MODELS } from '../lib/aiModels';
 
 export function InspectorPanel() {
   const [activeTab, setActiveTab] = useState<'design' | 'slot' | 'ai' | 'layers' | 'export'>('design');
@@ -37,7 +37,7 @@ export function InspectorPanel() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageStyle, setImageStyle] = useState('Cinematic Photography');
-  const [imageModel, setImageModel] = useState('flux');
+  const [imageModel, setImageModel] = useState<string>(DEFAULT_AI_ROUTING.image);
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageSuccess, setImageSuccess] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<string | null>(null);
