@@ -192,6 +192,8 @@ interface CarouselState {
   setApiKey: (provider: keyof AISettings['apiKeys'], key: string) => void;
 }
 
+const SEED_TIMESTAMP = '2026-01-01T00:00:00.000Z';
+
 const DEFAULT_DOC: CarouselDocument = {
   schemaVersion: '2.0',
   id: 'doc-initial',
@@ -269,8 +271,8 @@ const DEFAULT_DOC: CarouselDocument = {
     ctaRules: 'High contrast call to action.',
     enabled: true
   },
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
+  createdAt: SEED_TIMESTAMP,
+  updatedAt: SEED_TIMESTAMP
 };
 
 const SYSTEM_TEMPLATES: CarouselTemplate[] = [
@@ -281,8 +283,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Dramatic full-bleed image layouts with bold uppercase typography, logo tag, and cyan highlights.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: true,
     isSystemTemplate: true,
@@ -650,8 +652,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Clean dark theme with high contrast typography and subtle blue accent rules.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: false,
     isSystemTemplate: true,
@@ -974,8 +976,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Bold editorial crimson red aesthetic designed for high urgency & breaking news carousels.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: false,
     isSystemTemplate: true,
@@ -1150,8 +1152,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Sleek cyberpunk dark mode layout with glowing cyan & neon accents.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: false,
     isSystemTemplate: true,
@@ -1274,8 +1276,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Soft dark violet background with glowing pastel gradients for creative creators.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: false,
     isSystemTemplate: true,
