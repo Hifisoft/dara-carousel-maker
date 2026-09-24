@@ -14,6 +14,7 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
   const createDocument = useCarouselStore(state => state.createDocument);
   const templates = useCarouselStore(state => state.templates);
   const activeTemplateId = useCarouselStore(state => state.activeTemplateId);
+  const settings = useCarouselStore(state => state.settings);
   const [prompt, setPrompt] = useState('');
   const [slideCount, setSlideCount] = useState(5);
   const [templateId, setTemplateId] = useState(activeTemplateId || '');
@@ -40,7 +41,7 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
       if (mode === 'ai') {
         const response = await fetch('/api/ai/pipeline', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), topic: prompt.trim(), slideCount, templateId: template.id }),
+          body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), topic: prompt.trim(), slideCount, templateId: template.id, model: settings.routing.copy, instructions: settings.instructions.copy }),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Could not generate this carousel. Please try again.');

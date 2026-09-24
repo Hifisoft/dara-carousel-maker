@@ -10,6 +10,7 @@ import {
   saveTemplateToIDB, getAllTemplatesFromIDB, deleteTemplateFromIDB
 } from '../lib/idb';
 import { autoSizeTextLayer } from '../lib/textEngine';
+import { DEFAULT_AI_ROUTING, isImageModel, isTextModel } from '../lib/aiModels';
 
 
 interface HistorySnapshot {
@@ -126,7 +127,9 @@ interface CarouselState {
   moveSlide: (slideId: string, fromIndex: number, toIndex: number) => void;
   updateSlideBg: (color: string) => void;
   setSlideImageUrl: (slideId: string, url: string, prompt?: string) => void;
-  generateSlideImage: (slideId: string, customPrompt?: string, style?: string) => Promise<any>;
+  generateSlideImage: (slideId: string, customPrompt?: string, style?: string, imageModel?: string) => Promise<any>;
+  applyImageConcept: (conceptId: string, slideId: string) => void;
+  importInstagramCarousel: (sourceUrl: string, images: string[], caption?: string) => Promise<string>;
 
   // Selection Mutators
   setSelectedLayerId: (id: string | null) => void;
@@ -190,6 +193,8 @@ interface CarouselState {
   // Settings Actions
   setPerformancePreset: (preset: AISettings['preset']) => void;
   setApiKey: (provider: keyof AISettings['apiKeys'], key: string) => void;
+  loadAISettings: () => void;
+  updateAISettings: (routing: AISettings['routing'], instructions: AISettings['instructions']) => void;
 }
 
 const SEED_TIMESTAMP = '2026-01-01T00:00:00.000Z';
@@ -200,7 +205,7 @@ const DEFAULT_DOC: CarouselDocument = {
   workspaceId: 'default-workspace',
   title: '5 SaaS Growth Hacks for 2026',
   topic: 'SaaS Growth & AI Automation',
-  templateRef: { templateId: 'bbc', version: 1, overrides: {} },
+  templateRef: { templateId: 'tpl-bbc', version: 1, overrides: {} },
   dimensions: { width: 1080, height: 1440, aspectRatio: '4:5' },
   slides: [
     {
@@ -1433,12 +1438,8 @@ export const useCarouselStore = create<CarouselState>()(
     settings: {
       preset: 'balanced',
       apiKeys: {},
-      routing: {
-        copy: 'gpt-4o',
-        prompt: 'claude-3-5-sonnet',
-        image: 'nanobanana-2',
-        upscale: 'gemini-1.5'
-      }
+      routing: DEFAULT_AI_ROUTING,
+      instructions: { copy: '', image: '' }
     },
 
     getActiveSlide: () => {
@@ -2411,6 +2412,45 @@ export const useCarouselStore = create<CarouselState>()(
       return newDoc.id;
     },
 
+    importInstagramCarousel: async (sourceUrl, images, caption) => {
+      if (images.length === 0) throw new Error('No images were found in this post.');
+      const template = get().templates.find(item => item.isDefault) || get().templates[0];
+      const now = new Date().toISOString();
+      const newDoc: CarouselDocument = {
+        schemaVersion: '2.0',
+        id: crypto.randomUUID(),
+        workspaceId: 'default-workspace',
+        title: caption?.split('\n')[0]?.trim().slice(0, 60) || 'Instagram carousel',
+        topic: caption?.trim() || 'Imported Instagram carousel',
+        sourceUrl: sourceUrl || undefined,
+        templateRef: { templateId: template?.id || '', version: template?.version || 1, overrides: {} },
+        dimensions: { width: 1080, height: 1440, aspectRatio: '4:5' },
+        slides: images.map((url, index): SlideSceneNode => ({
+          id: crypto.randomUUID(),
+          segmentRole: index === 0 ? 'cover_hook' : index === images.length - 1 ? 'cta' : 'value',
+          backgroundColor: '#ffffff',
+          layers: [{
+            id: crypto.randomUUID(), name: 'Imported slide image', type: 'image',
+            semanticRole: 'hero_image', url, status: 'ready',
+            x: 0, y: 0, width: 1080, height: 1440, rotation: 0, opacity: 1,
+            isLocked: false, isVisible: true, zIndex: 0, borderRadius: 0
+          }]
+        })),
+        globalCreativeDirection: { globalRules: '', coverRules: '', contentRules: '', ctaRules: '', enabled: false },
+        createdAt: now,
+        updatedAt: now
+      };
+      await saveDocumentToIDB(newDoc);
+      set(state => {
+        state.documents.unshift(newDoc);
+        state.activeDocumentId = newDoc.id;
+        state.activeSlideId = newDoc.slides[0].id;
+        state.selectedLayerId = null;
+        state.currentView = 'editor';
+      });
+      return newDoc.id;
+    },
+
 
     deleteDocument: async (id) => {
 
@@ -2624,7 +2664,7 @@ export const useCarouselStore = create<CarouselState>()(
       persistActiveDocument(doc);
     }),
 
-    generateSlideImage: async (slideId, customPrompt, style) => {
+    generateSlideImage: async (slideId, customPrompt, style, imageModel) => {
       const state = get();
       const doc = state.documents.find((d) => d.id === state.activeDocumentId);
       const slide = doc?.slides.find((s) => s.id === slideId);
@@ -2648,7 +2688,10 @@ export const useCarouselStore = create<CarouselState>()(
           slideTitle,
           slideBody,
           customPrompt,
-          style: style || 'Cinematic Photography'
+          style: style || 'Cinematic Photography',
+          model: imageModel || state.settings.routing.image,
+          promptModel: state.settings.routing.prompt,
+          instructions: state.settings.instructions.image
         })
       });
 
@@ -2659,11 +2702,29 @@ export const useCarouselStore = create<CarouselState>()(
 
       const data = await res.json();
       if (data.success && data.imageUrl) {
+        set(current => {
+          const target = current.documents.find(item => item.id === doc.id);
+          if (!target) return;
+          target.generatedImages ||= [];
+          target.generatedImages.push({
+            id: crypto.randomUUID(), slideId, imageUrl: data.imageUrl,
+            prompt: data.optimizedPrompt || customPrompt || '',
+            model: data.model || imageModel || state.settings.routing.image,
+            createdAt: new Date().toISOString()
+          });
+        });
         get().setSlideImageUrl(slideId, data.imageUrl, data.optimizedPrompt);
         return data;
       } else {
         throw new Error(data.error || 'Failed to generate image');
       }
+    },
+
+    applyImageConcept: (conceptId, slideId) => {
+      const doc = get().documents.find(item => item.id === get().activeDocumentId);
+      const concept = doc?.generatedImages?.find(item => item.id === conceptId);
+      if (!concept) return;
+      get().setSlideImageUrl(slideId, concept.imageUrl, concept.prompt);
     },
 
     // SELECTION MUTATORS
@@ -3435,7 +3496,42 @@ export const useCarouselStore = create<CarouselState>()(
 
     setApiKey: (provider, key) => set((state) => {
       state.settings.apiKeys[provider] = key;
-    })
+    }),
+
+    loadAISettings: () => {
+      if (typeof window === 'undefined') return;
+      try {
+        const saved = JSON.parse(localStorage.getItem('dara-ai-settings-v1') || '{}');
+        set(state => {
+          state.settings.routing.copy = isTextModel(saved.routing?.copy) ? saved.routing.copy : DEFAULT_AI_ROUTING.copy;
+          state.settings.routing.prompt = isTextModel(saved.routing?.prompt) ? saved.routing.prompt : DEFAULT_AI_ROUTING.prompt;
+          state.settings.routing.image = isImageModel(saved.routing?.image) ? saved.routing.image : DEFAULT_AI_ROUTING.image;
+          state.settings.instructions.copy = typeof saved.instructions?.copy === 'string' ? saved.instructions.copy.slice(0, 20000) : '';
+          state.settings.instructions.image = typeof saved.instructions?.image === 'string' ? saved.instructions.image.slice(0, 20000) : '';
+        });
+      } catch (error) {
+        console.warn('Could not load AI settings:', error);
+      }
+    },
+
+    updateAISettings: (routing, instructions) => {
+      const next = {
+        routing: {
+          copy: isTextModel(routing.copy) ? routing.copy : DEFAULT_AI_ROUTING.copy,
+          prompt: isTextModel(routing.prompt) ? routing.prompt : DEFAULT_AI_ROUTING.prompt,
+          image: isImageModel(routing.image) ? routing.image : DEFAULT_AI_ROUTING.image,
+        },
+        instructions: {
+          copy: instructions.copy.slice(0, 20000),
+          image: instructions.image.slice(0, 20000),
+        }
+      };
+      localStorage.setItem('dara-ai-settings-v1', JSON.stringify(next));
+      set(state => {
+        state.settings.routing = next.routing;
+        state.settings.instructions = next.instructions;
+      });
+    }
   }))
 );
 

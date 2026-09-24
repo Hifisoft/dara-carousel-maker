@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 import {
   Search, Trash2, LayoutGrid, Plus, Sparkles, Layers,
   Type, Image as ImageIcon, Square, Layout, X, Play,
-  AlertCircle, CheckCircle2, Sliders, Upload, RefreshCw, ZoomIn, ZoomOut,
+  AlertCircle, Sliders, Upload, RefreshCw, ZoomIn, ZoomOut, Link2,
   Copy, Circle, Minus, LayoutTemplate, Layers2
 } from 'lucide-react';
 
@@ -20,6 +20,8 @@ import { InspectorPanel } from '../components/InspectorPanel';
 import { SaveAsTemplateModal } from '../components/SaveAsTemplateModal';
 import { ExportModal } from '../components/ExportModal';
 import { SlidePreview } from '../components/SlidePreview';
+import { AISettingsPanel } from '../components/AISettingsPanel';
+import { InstagramImportModal } from '../components/InstagramImportModal';
 
 export default function AppMain() {
   const currentView = useCarouselStore((state) => state.currentView);
@@ -58,8 +60,7 @@ export default function AppMain() {
   const setEditorMode = useCarouselStore((state) => state.setEditorMode);
   const setActiveShapeType = useCarouselStore((state) => state.setActiveShapeType);
 
-  const settings = useCarouselStore((state) => state.settings);
-  const setPerformancePreset = useCarouselStore((state) => state.setPerformancePreset);
+  const loadAISettings = useCarouselStore((state) => state.loadAISettings);
 
   // Template System Store State & Actions
   const templates = useCarouselStore((state) => state.templates);
@@ -91,6 +92,8 @@ export default function AppMain() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState('updated');
+  const [templateFilter, setTemplateFilter] = useState('all');
+  const [isImportOpen, setIsImportOpen] = useState(false);
 
   // Native File Picker Ref for Image Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -134,32 +137,22 @@ export default function AppMain() {
   // Template View state
   const [templateZoom, setTemplateZoom] = useState(100);
 
-  // Settings view local state
-  const [selectedPreset, setSelectedPreset] = useState<'high_quality' | 'balanced' | 'high_speed'>('balanced');
-  const [apiKeys, setApiKeys] = useState({
-    openai: 'sk-proj-••••••••••••••••',
-    claude: 'sk-ant-••••••••••••••••',
-    gemini: '',
-    deepseek: 'sk-ds-••••••••••••••••',
-    grok: '',
-    seeddance: 'sd-••••••••••••••••'
-  });
-
   // Reorder Drag State for Slide Deck
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
 
   useEffect(() => {
     loadDocumentsFromStorage();
     loadTemplatesFromStorage();
-  }, [loadDocumentsFromStorage, loadTemplatesFromStorage]);
+    loadAISettings();
+  }, [loadDocumentsFromStorage, loadTemplatesFromStorage, loadAISettings]);
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId);
   const activeSlide = activeDoc?.slides.find((s) => s.id === activeSlideId) || activeDoc?.slides[0];
 
   const filteredDocs = documents.filter(
-    (doc) =>
+    (doc) => (templateFilter === 'all' || (doc.templateRef.templateId === 'bbc' ? 'tpl-bbc' : doc.templateRef.templateId) === templateFilter) && (
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.topic.toLowerCase().includes(searchQuery.toLowerCase())
+      doc.topic.toLowerCase().includes(searchQuery.toLowerCase()))
   ).sort((a, b) => sortOrder === 'title' ? a.title.localeCompare(b.title) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 
   // Keyboard shortcut listener for Z-order, grouping, duplication, deletion & slide reordering
@@ -327,10 +320,15 @@ export default function AppMain() {
               <p>{documents.length} {documents.length === 1 ? 'carousel' : 'carousels'} in your workspace</p>
             </div>
             <div className="library-controls">
+              <button className="secondary-button library-import" onClick={() => setIsImportOpen(true)}><Link2 size={14} /> Import URL</button>
               <div className="library-search">
                 <Search />
                 <input aria-label="Search carousels" placeholder="Search carousels" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
               </div>
+              <select className="library-sort" aria-label="Filter by template" value={templateFilter} onChange={event => setTemplateFilter(event.target.value)}>
+                <option value="all">All templates</option>
+                {templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
               <select className="library-sort" aria-label="Sort carousels" value={sortOrder} onChange={event => setSortOrder(event.target.value)}>
                 <option value="updated">Last edited</option>
                 <option value="title">Name</option>
@@ -348,7 +346,7 @@ export default function AppMain() {
                     </div>
                     <div className="project-info">
                       <h3>{doc.title}</h3>
-                      <p><span>{doc.slides.length} {doc.slides.length === 1 ? 'slide' : 'slides'}</span><span className="subtitle-dot" /><time dateTime={doc.updatedAt}>{new Date(doc.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}</time></p>
+                      <p><span>{doc.slides.length} {doc.slides.length === 1 ? 'slide' : 'slides'}</span><span className="subtitle-dot" /><span>{templates.find(item => item.id === (doc.templateRef.templateId === 'bbc' ? 'tpl-bbc' : doc.templateRef.templateId))?.name || 'Unknown template'}</span><span className="subtitle-dot" /><time dateTime={doc.updatedAt}>{new Date(doc.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}</time></p>
                     </div>
                   </button>
                   <button className="project-delete" onClick={() => deleteDocument(doc.id)} title="Delete carousel" aria-label={`Delete ${doc.title}`}><Trash2 size={13} /></button>
@@ -358,8 +356,8 @@ export default function AppMain() {
           ) : (
             <div className="library-empty">
               <LayoutGrid />
-              <h2>{searchQuery ? 'No matching carousels' : 'Your next story starts here.'}</h2>
-              {searchQuery ? <button className="secondary-button" onClick={() => setSearchQuery('')}>Clear search</button> : <button className="primary-button" onClick={() => setIsModalOpen(true)}><Plus size={16} />New carousel</button>}
+              <h2>{searchQuery || templateFilter !== 'all' ? 'No matching carousels' : 'Your next story starts here.'}</h2>
+              {searchQuery || templateFilter !== 'all' ? <button className="secondary-button" onClick={() => { setSearchQuery(''); setTemplateFilter('all'); }}>Clear filters</button> : <button className="primary-button" onClick={() => setIsModalOpen(true)}><Plus size={16} />New carousel</button>}
             </div>
           )}
         </main>
@@ -1058,208 +1056,10 @@ export default function AppMain() {
         </main>
       )}
 
-      {/* AI SETTINGS VIEW */}
-      {currentView === 'settings' && (
-        <main className="pt-[104px] px-6 max-w-[1280px] mx-auto pb-24 flex-1 overflow-y-auto w-full space-y-8">
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-1">AI Configuration Engine</h1>
-            <p className="text-xs text-text-secondary">
-              Configure multi-model performance presets, API provider keys, and pipeline task routing rules.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text-secondary">
-              Performance Profiles
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div
-                className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                  selectedPreset === 'high_quality'
-                    ? 'bg-blue-600/10 border-accent-blue ring-2 ring-blue-500/30'
-                    : 'bg-surface border-border-default hover:border-text-secondary'
-                }`}
-                onClick={() => setSelectedPreset('high_quality')}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-white">High Quality</span>
-                  {selectedPreset === 'high_quality' && (
-                    <CheckCircle2 className="w-4 h-4 text-accent-blue" />
-                  )}
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  Maximum reasoning depth and highest visual accuracy. Uses Claude 3.5 Sonnet & GPT-4o.
-                </p>
-              </div>
-
-              <div
-                className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                  selectedPreset === 'balanced'
-                    ? 'bg-blue-600/10 border-accent-blue ring-2 ring-blue-500/30'
-                    : 'bg-surface border-border-default hover:border-text-secondary'
-                }`}
-                onClick={() => setSelectedPreset('balanced')}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-white">Balanced (Recommended)</span>
-                  {selectedPreset === 'balanced' && (
-                    <CheckCircle2 className="w-4 h-4 text-accent-blue" />
-                  )}
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  Optimal blend of speed, cost & creative depth across GPT-4o, Claude, and Gemini.
-                </p>
-              </div>
-
-              <div
-                className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                  selectedPreset === 'high_speed'
-                    ? 'bg-blue-600/10 border-accent-blue ring-2 ring-blue-500/30'
-                    : 'bg-surface border-border-default hover:border-text-secondary'
-                }`}
-                onClick={() => setSelectedPreset('high_speed')}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-white">High Speed</span>
-                  {selectedPreset === 'high_speed' && (
-                    <CheckCircle2 className="w-4 h-4 text-accent-blue" />
-                  )}
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  Ultra-fast generation, minimal latency. Uses DeepSeek V3 and fast image endpoints.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text-secondary">
-              Provider Connections (6 Models Supported)
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[
-                { name: 'OpenAI', model: 'GPT-4o', keyField: 'openai', status: 'connected' },
-                { name: 'Claude', model: 'Claude 3.5 Sonnet', keyField: 'claude', status: 'connected' },
-                { name: 'Gemini', model: 'Gemini 1.5 Pro', keyField: 'gemini', status: 'unconfigured' },
-                { name: 'DeepSeek', model: 'DeepSeek V3/R1', keyField: 'deepseek', status: 'connected' },
-                { name: 'grok', model: 'Grok 2', keyField: 'grok', status: 'unconfigured' },
-                { name: 'seed dance', model: 'Seed-Dance 1.0', keyField: 'seeddance', status: 'connected' }
-              ].map((prov) => (
-                <div key={prov.name} className="bg-surface border border-border-default rounded-xl p-4 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <span className="text-xs font-bold text-white block capitalize">{prov.name}</span>
-                      <span className="text-[10px] text-text-tertiary">{prov.model}</span>
-                    </div>
-                    {prov.status === 'connected' ? (
-                      <span className="text-[10px] bg-green-500/15 text-accent-green px-2 py-0.5 rounded font-semibold border border-green-500/20">
-                        Connected ✓
-                      </span>
-                    ) : (
-                      <span className="text-[10px] bg-amber-500/15 text-amber-400 px-2 py-0.5 rounded font-semibold border border-amber-500/20">
-                        Unconfigured
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    type="password"
-                    className="w-full bg-surface-elevated border border-border-default rounded px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-border-focus"
-                    placeholder="Enter API Key..."
-                    value={(apiKeys as any)[prov.keyField]}
-                    onChange={(e) => setApiKeys({ ...apiKeys, [prov.keyField]: e.target.value })}
-                  />
-                  <button className="w-full py-1.5 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-[11px] font-medium text-text-secondary hover:text-white transition-colors">
-                    Test Connection
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text-secondary">
-              Task Routing Logic
-            </h2>
-            <div className="bg-surface border border-border-default rounded-xl overflow-hidden">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-surface-elevated border-b border-border-default text-text-secondary font-semibold uppercase text-[10px]">
-                  <tr>
-                    <th className="p-3">Stage / Task</th>
-                    <th className="p-3">Primary Engine</th>
-                    <th className="p-3">Fallback Engine</th>
-                    <th className="p-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  <tr>
-                    <td className="p-3 font-medium text-white">Outline & Script Generation</td>
-                    <td className="p-3 font-mono text-text-secondary">OpenAI (GPT-4o)</td>
-                    <td className="p-3 font-mono text-text-tertiary">Claude 3.5 Sonnet</td>
-                    <td className="p-3">
-                      <span className="text-[10px] text-accent-green bg-green-500/10 px-2 py-0.5 rounded font-semibold">OK</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-medium text-white">Visual Prompt Engineering</td>
-                    <td className="p-3 font-mono text-text-secondary">Claude 3.5 Sonnet</td>
-                    <td className="p-3 font-mono text-text-tertiary">Gemini 1.5 Pro</td>
-                    <td className="p-3">
-                      <span className="text-[10px] text-red-400 bg-red-500/15 px-2 py-0.5 rounded font-semibold flex items-center gap-1 w-fit border border-red-500/30">
-                        <AlertCircle className="w-3 h-3 text-red-400" />
-                        Fallback Missing Key (!)
-                      </span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-medium text-white">Image Generation</td>
-                    <td className="p-3 font-mono text-text-secondary">Seed-Dance 1.0</td>
-                    <td className="p-3 font-mono text-text-tertiary">OpenAI (DALL-E 3)</td>
-                    <td className="p-3">
-                      <span className="text-[10px] text-accent-green bg-green-500/10 px-2 py-0.5 rounded font-semibold">OK</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-medium text-white">Style & Layout Consistency Check</td>
-                    <td className="p-3 font-mono text-text-secondary">Gemini 1.5 Pro</td>
-                    <td className="p-3 font-mono text-text-tertiary">DeepSeek V3</td>
-                    <td className="p-3">
-                      <span className="text-[10px] text-red-400 bg-red-500/15 px-2 py-0.5 rounded font-semibold flex items-center gap-1 w-fit border border-red-500/30">
-                        <AlertCircle className="w-3 h-3 text-red-400" />
-                        Primary Key Unconfigured (!)
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="fixed bottom-0 left-0 right-0 h-[60px] bg-surface border-t border-border-default px-6 flex items-center justify-between z-50 shadow-2xl">
-            <span className="text-xs text-text-secondary">
-              Changes will be applied dynamically to the reactive routing pipeline.
-            </span>
-            <div className="flex items-center gap-3">
-              <button
-                className="px-4 py-2 border border-border-default rounded text-xs font-semibold text-text-secondary hover:text-white hover:bg-surface-hover transition-colors"
-                onClick={() => setView('dashboard')}
-              >
-                Discard Changes
-              </button>
-              <button
-                className="px-5 py-2 bg-white text-black hover:bg-neutral-200 rounded text-xs font-bold shadow transition-colors"
-                onClick={() => {
-                  setPerformancePreset(selectedPreset);
-                  setView('dashboard');
-                }}
-              >
-                Apply Configuration
-              </button>
-            </div>
-          </div>
-        </main>
-      )}
+      {currentView === 'settings' && <AISettingsPanel />}
 
       <NewCarouselModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      <InstagramImportModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
 
       {/* NEW TEMPLATE CREATION MODAL */}
       {isNewTemplateModalOpen && (

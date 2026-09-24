@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { DEFAULT_AI_ROUTING, isTextModel } from '../../../../lib/aiModels';
 
 export interface AIPipelineRequest {
   idempotencyKey: string;
   topic: string;
   slideCount?: number;
   templateId?: string;
+  model?: string;
+  instructions?: string;
 }
 
 export interface GeneratedSlide {
@@ -21,75 +24,27 @@ export interface AIPipelineResponse {
   error?: string;
 }
 
-// ─── Verified Candidate Models Cascade ────────────────────────────────────────
-
-const CANDIDATE_MODELS = [
-  'gemini-3.5-flash',
-  'gemini-3.1-flash-lite',
-  'gemini-flash-latest'
-];
-
-// ─── Gemini Multi-Model Caller with Retries ───────────────────────────────────
-
-async function callGemini(prompt: string, systemPrompt: string): Promise<string> {
+async function callGemini(prompt: string, systemPrompt: string, model: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('NO_API_KEY');
-
-  let lastError: Error | null = null;
-
-  for (const model of CANDIDATE_MODELS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                temperature: 0.6,
-                topP: 0.9,
-                maxOutputTokens: 2500,
-                responseMimeType: 'application/json',
-                thinkingConfig: { thinkingBudget: 0 }
-              },
-              systemInstruction: { parts: [{ text: systemPrompt }] }
-            })
-          }
-        );
-
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const data = await res.json();
-          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) return text;
-        }
-
-        const errText = await res.text().catch(() => '');
-        console.warn(`[AI Pipeline] ${model} attempt ${attempt + 1} returned ${res.status}: ${errText.substring(0, 120)}`);
-        
-        if (res.status === 503 || res.status === 429) {
-          await new Promise((r) => setTimeout(r, 800));
-        } else {
-          break; // Try next candidate model
-        }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[AI Pipeline] ${model} attempt ${attempt + 1} failed:`, err.message);
-        await new Promise((r) => setTimeout(r, 600));
-      }
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.6, topP: 0.9, maxOutputTokens: 2500, responseMimeType: 'application/json' },
+        systemInstruction: { parts: [{ text: systemPrompt }] }
+      })
     }
-  }
-
-  throw lastError || new Error('All Gemini model endpoints failed');
+  );
+  if (!response.ok) throw new Error(`Selected model ${model} returned ${response.status}`);
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.find((part: { text?: string }) => part.text)?.text;
+  if (!text) throw new Error('Selected model returned no copy');
+  return text;
 }
-
 // ─── Research & Copywriting Prompt Engine ─────────────────────────────────────
 
 function buildCopyPrompt(topic: string, slideCount: number): string {
@@ -146,6 +101,9 @@ export async function POST(req: NextRequest) {
     if (typeof body.topic !== 'string' || !body.topic.trim() || typeof body.idempotencyKey !== 'string') {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
     }
+    if (body.model !== undefined && !isTextModel(body.model)) {
+      return NextResponse.json({ error: 'Unsupported copy model' }, { status: 400 });
+    }
 
     if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json({ error: 'AI copy needs a server-side GEMINI_API_KEY. You can still create a template draft without AI.' }, { status: 503 });
@@ -157,7 +115,8 @@ export async function POST(req: NextRequest) {
 
       try {
         const prompt = buildCopyPrompt(body.topic, slideCount);
-        const raw = await callGemini(prompt, SYSTEM_PROMPT);
+        const instructions = typeof body.instructions === 'string' ? body.instructions.slice(0, 20000) : '';
+        const raw = await callGemini(prompt, `${SYSTEM_PROMPT}\n\nUSER MASTER INSTRUCTIONS:\n${instructions}`, body.model || DEFAULT_AI_ROUTING.copy);
         
         // Clean markdown codeblocks if present
         const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();

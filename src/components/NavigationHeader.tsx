@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
-import { LayoutGrid, Layers, Settings2, ChevronLeft, RotateCcw, RotateCw, Plus, Download, LayoutTemplate, Menu, X, Check, Save } from 'lucide-react';
+import { LayoutGrid, Layers, Settings2, ChevronLeft, RotateCcw, RotateCw, Plus, Download, LayoutTemplate, Menu, X, Check, Save, Link2 } from 'lucide-react';
 
 interface NavigationHeaderProps {
   onOpenCreationModal: () => void;
@@ -53,7 +53,7 @@ export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModa
           <span className="document-subtitle">
             {state.isTemplateEditorMode ? 'Template' : `${activeDoc?.slides.length || 0} slides`}
             <span className="subtitle-dot" />
-            {state.isTemplateEditorMode && state.templateDirty ? 'Unsaved changes' : 'Saved on this device'}
+            {activeDoc?.sourceUrl && !state.isTemplateEditorMode ? <a href={activeDoc.sourceUrl} target="_blank" rel="noopener noreferrer" title="Open Instagram source"><Link2 size={11} /> Instagram source</a> : state.isTemplateEditorMode && state.templateDirty ? 'Unsaved changes' : 'Saved on this device'}
           </span>
         </div>
       ) : (

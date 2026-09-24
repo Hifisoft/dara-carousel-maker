@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { TextSlotConstraints, ImageSlotLayerNode } from '../types/schema';
 import { FigmaTypographyControl } from './FigmaTypographyControl';
+import { IMAGE_MODELS } from '../lib/aiModels';
 
 export function InspectorPanel() {
   const [activeTab, setActiveTab] = useState<'design' | 'slot' | 'ai' | 'layers' | 'export'>('design');
@@ -36,6 +37,7 @@ export function InspectorPanel() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageStyle, setImageStyle] = useState('Cinematic Photography');
+  const [imageModel, setImageModel] = useState('flux');
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageSuccess, setImageSuccess] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<string | null>(null);
@@ -84,6 +86,8 @@ export function InspectorPanel() {
   const reorderLayer = useCarouselStore((state) => state.reorderLayer);
   const updateSlideBg = useCarouselStore((state) => state.updateSlideBg);
   const generateSlideImage = useCarouselStore((state) => state.generateSlideImage);
+  const applyImageConcept = useCarouselStore((state) => state.applyImageConcept);
+  const configuredImageModel = useCarouselStore((state) => state.settings.routing.image);
   const setSlideImageUrl = useCarouselStore((state) => state.setSlideImageUrl);
 
   const isTemplateEditorMode = useCarouselStore((state) => state.isTemplateEditorMode);
@@ -94,6 +98,8 @@ export function InspectorPanel() {
   const activeLayout = getActiveMasterLayout();
 
   const activeContainer = isTemplateEditorMode ? activeLayout : activeSlide;
+
+  useEffect(() => setImageModel(configuredImageModel), [configuredImageModel]);
 
   const isLogo = (l: LayerNode) =>
     l.type === 'logo' ||
@@ -148,7 +154,7 @@ export function InspectorPanel() {
 
     try {
       const p = customPromptToUse || promptText;
-      const res = await generateSlideImage(activeSlide.id, p, imageStyle);
+      const res = await generateSlideImage(activeSlide.id, p, imageStyle, imageModel);
       if (res?.optimizedPrompt) {
         setPromptText(res.optimizedPrompt);
       }
@@ -1289,6 +1295,13 @@ export function InspectorPanel() {
                   </span>
                 </div>
 
+                <label className="block text-[10px] font-semibold text-text-secondary uppercase">
+                  Image model
+                  <select className="mt-1.5 w-full bg-surface border border-border-default rounded px-2 py-1.5 text-xs text-white" value={imageModel} onChange={event => setImageModel(event.target.value)}>
+                    {IMAGE_MODELS.map(model => <option key={model.id} value={model.id}>{model.label}</option>)}
+                  </select>
+                </label>
+
                 {/* Visual Style Selector */}
                 <div>
                   <label className="block text-[10px] font-semibold text-text-secondary uppercase mb-1.5">
@@ -1431,6 +1444,25 @@ export function InspectorPanel() {
                   </div>
                 </div>
               )}
+
+              <section className="image-concept-library" aria-label="Generated image library">
+                <div className="image-concept-heading">
+                  <h3>Image library</h3>
+                  <span>{activeDoc?.generatedImages?.length || 0} concepts</span>
+                </div>
+                {activeDoc?.generatedImages?.length ? (
+                  <div className="image-concept-grid">
+                    {[...activeDoc.generatedImages].reverse().map(concept => (
+                      <button key={concept.id} className={`image-concept-item ${existingImgUrl === concept.imageUrl ? 'is-active' : ''}`}
+                        onClick={() => { if (activeSlide) applyImageConcept(concept.id, activeSlide.id); }}
+                        title={`${concept.model} · ${concept.prompt}`} aria-label={`Use ${concept.model} concept from slide ${activeDoc.slides.findIndex(slide => slide.id === concept.slideId) + 1}`}>
+                        <img src={concept.imageUrl} alt="" />
+                        <span>Slide {activeDoc.slides.findIndex(slide => slide.id === concept.slideId) + 1}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : <p className="image-concept-empty">Generated concepts for this carousel will appear here.</p>}
+              </section>
 
               {/* Refine Visuals via Chat */}
               <div className="bg-surface-elevated rounded-lg border border-border-default p-3 space-y-3">

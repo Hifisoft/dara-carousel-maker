@@ -76,8 +76,19 @@ export interface CarouselDocument {
   };
   slides: SlideSceneNode[];
   globalCreativeDirection: CreativeDirectionConfig;
+  sourceUrl?: string;
+  generatedImages?: GeneratedImageConcept[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface GeneratedImageConcept {
+  id: string;
+  slideId: string;
+  imageUrl: string;
+  prompt: string;
+  model: string;
+  createdAt: string;
 }
 
 export interface SlideSceneNode {
@@ -300,7 +311,10 @@ export interface AISettings {
     copy: string;
     prompt: string;
     image: string;
-    upscale: string;
+  };
+  instructions: {
+    copy: string;
+    image: string;
   };
 }
 
