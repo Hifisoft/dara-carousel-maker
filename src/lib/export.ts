@@ -1,6 +1,7 @@
 import { CarouselDocument, ImageSlotLayerNode, SlideSceneNode } from '../types/schema';
 import { resolveLineHeightMultiplier, resolveLetterSpacingPx, transformTextCase, calculateVerticalAlignOffset } from './textEngine';
 import { resolveCssFontFamily, loadFont } from './fontLoader';
+import { adjustedImage, imageCrop as cropImageLayer, roundedImagePath } from './imageRendering';
 
 export type ExportFormat = 'png' | 'zip' | 'pdf';
 
@@ -97,8 +98,35 @@ async function renderSlide(slide: SlideSceneNode, pixelRatio: number): Promise<B
           : layer.type === 'image-slot' ? layer.assignedMediaUrl || layer.url || layer.fallbackUrl : layer.url;
         if (!source) continue;
         const image = await loadImage(source);
-        scene.add(new Konva.Image({ ...common, width: layer.width, height: layer.height, image,
-          crop: layer.type === 'image-slot' ? imageCrop(layer, image) : undefined }));
+        if (layer.type === 'image') {
+          const rendered = adjustedImage(image, layer.adjustments);
+          const group = new Konva.Group(common);
+          const clipped = new Konva.Group({
+            clipFunc: context => roundedImagePath(context, layer.width, layer.height, layer.borderRadius || 0),
+          });
+          clipped.add(new Konva.Image({
+            width: layer.width,
+            height: layer.height,
+            image: rendered,
+            crop: cropImageLayer(layer, rendered),
+            listening: false,
+          }));
+          group.add(clipped);
+          if (layer.stroke?.width) {
+            group.add(new Konva.Rect({
+              width: layer.width,
+              height: layer.height,
+              cornerRadius: layer.borderRadius || 0,
+              stroke: layer.stroke.color || '#FFFFFF',
+              strokeWidth: layer.stroke.width,
+              listening: false,
+            }));
+          }
+          scene.add(group);
+        } else {
+          scene.add(new Konva.Image({ ...common, width: layer.width, height: layer.height, image,
+            crop: layer.type === 'image-slot' ? imageCrop(layer, image) : undefined }));
+        }
       }
     }
     scene.draw();

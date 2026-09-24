@@ -215,6 +215,18 @@ export interface ImageLayerNode extends BaseLayerNode {
     offsetY: number;
   };
   borderRadius: number;
+  stroke?: {
+    color: string;
+    width: number;
+  };
+  adjustments?: {
+    exposure: number;
+    contrast: number;
+    saturation: number;
+    temperature: number;
+    highlights: number;
+    shadows: number;
+  };
 }
 
 export interface ImageSlotLayerNode extends BaseLayerNode {

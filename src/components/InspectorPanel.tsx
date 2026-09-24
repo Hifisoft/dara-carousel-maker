@@ -19,6 +19,34 @@ import { TextSlotConstraints, ImageSlotLayerNode } from '../types/schema';
 import { FigmaTypographyControl } from './FigmaTypographyControl';
 import { DEFAULT_AI_ROUTING, IMAGE_MODELS } from '../lib/aiModels';
 
+function ImageSlider({ label, value, min, max, step = 1, unit = '', onChange }: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  unit?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="flex items-center justify-between text-[11px] font-semibold text-text-secondary">
+        <span>{label}</span><span className="font-mono text-white">{value}{unit}</span>
+      </span>
+      <input
+        type="range"
+        aria-label={label}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={event => onChange(Number(event.target.value))}
+        className="w-full accent-accent-blue"
+      />
+    </label>
+  );
+}
+
 export function InspectorPanel() {
   const [activeTab, setActiveTab] = useState<'design' | 'slot' | 'ai' | 'layers' | 'export'>('design');
 
@@ -799,8 +827,13 @@ export function InspectorPanel() {
                 )}
 
                 {/* IMAGE LAYER CONTROLS */}
-                {selectedLayer.type === 'image' && (
-                  <div className="space-y-3">
+                {selectedLayer.type === 'image' && (() => {
+                  const imageLayer = selectedLayer as ImageLayerNode;
+                  const crop = imageLayer.crop || { scale: 1, offsetX: 0, offsetY: 0 };
+                  const adjustments = imageLayer.adjustments || {
+                    exposure: 0, contrast: 0, saturation: 0, temperature: 0, highlights: 0, shadows: 0,
+                  };
+                  return <div className="space-y-5">
                     <button
                       className="w-full py-2 bg-gradient-to-r from-purple-600 to-accent-blue hover:opacity-95 text-white text-xs font-semibold rounded flex items-center justify-center gap-1.5 shadow transition-all disabled:opacity-50"
                       onClick={() => handleTriggerImageGeneration()}
@@ -825,25 +858,54 @@ export function InspectorPanel() {
                       <input
                         type="text"
                         className="w-full bg-surface-elevated border border-border-default rounded px-2.5 py-1.5 text-xs text-white outline-none focus:border-border-focus font-mono"
-                        value={(selectedLayer as ImageLayerNode).url || ''}
+                        value={imageLayer.url || ''}
                         onChange={(e) => updateLayerNode(selectedLayer.id, { url: e.target.value })}
                       />
                     </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-text-secondary uppercase mb-1">
-                        Corner Radius (px)
-                      </label>
-                      <input
-                        type="range"
-                        min={0}
-                        max={60}
-                        className="w-full accent-accent-blue"
-                        value={(selectedLayer as ImageLayerNode).borderRadius || 0}
-                        onChange={(e) => updateLayerNode(selectedLayer.id, { borderRadius: Number(e.target.value) })}
-                      />
+                    <div className="space-y-3 border-t border-border-subtle pt-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-semibold text-white">Crop</h3>
+                        <button type="button" className="text-[11px] text-text-secondary hover:text-white"
+                          onClick={() => updateLayerNode(imageLayer.id, { crop: { scale: 1, offsetX: 0, offsetY: 0 } })}>Reset</button>
+                      </div>
+                      <ImageSlider label="Zoom" value={Math.round(crop.scale * 100)} min={100} max={300} unit="%"
+                        onChange={value => updateLayerNode(imageLayer.id, { crop: { ...crop, scale: value / 100 } })} />
+                      <ImageSlider label="Horizontal position" value={Math.round(crop.offsetX * 100)} min={-100} max={100} unit="%"
+                        onChange={value => updateLayerNode(imageLayer.id, { crop: { ...crop, offsetX: value / 100 } })} />
+                      <ImageSlider label="Vertical position" value={Math.round(crop.offsetY * 100)} min={-100} max={100} unit="%"
+                        onChange={value => updateLayerNode(imageLayer.id, { crop: { ...crop, offsetY: value / 100 } })} />
                     </div>
-                  </div>
-                )}
+                    <div className="space-y-3 border-t border-border-subtle pt-4">
+                      <h3 className="text-xs font-semibold text-white">Frame</h3>
+                      <ImageSlider label="Corner radius" value={imageLayer.borderRadius || 0} min={0}
+                        max={Math.max(1, Math.round(Math.min(imageLayer.width, imageLayer.height) / 2))} unit=" px"
+                        onChange={value => updateLayerNode(imageLayer.id, { borderRadius: value })} />
+                      <ImageSlider label="Stroke size" value={imageLayer.stroke?.width || 0} min={0} max={40} unit=" px"
+                        onChange={value => updateLayerNode(imageLayer.id, { stroke: { color: imageLayer.stroke?.color || '#FFFFFF', width: value } })} />
+                      {(imageLayer.stroke?.width || 0) > 0 && <label className="flex items-center justify-between text-[11px] font-semibold text-text-secondary">
+                        Stroke color
+                        <input type="color" aria-label="Stroke color" value={imageLayer.stroke?.color || '#FFFFFF'}
+                          onChange={event => updateLayerNode(imageLayer.id, { stroke: { color: event.target.value, width: imageLayer.stroke?.width || 0 } })}
+                          className="h-8 w-10 cursor-pointer rounded border border-border-default bg-transparent p-0" />
+                      </label>}
+                    </div>
+                    <div className="space-y-3 border-t border-border-subtle pt-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-semibold text-white">Adjustments</h3>
+                        <button type="button" className="text-[11px] text-text-secondary hover:text-white"
+                          onClick={() => updateLayerNode(imageLayer.id, { adjustments: {
+                            exposure: 0, contrast: 0, saturation: 0, temperature: 0, highlights: 0, shadows: 0,
+                          } })}>Reset</button>
+                      </div>
+                      {(['exposure', 'contrast', 'saturation', 'temperature', 'highlights', 'shadows'] as const).map(key => (
+                        <ImageSlider key={key} label={key[0].toUpperCase() + key.slice(1)} value={adjustments[key] || 0}
+                          min={key === 'exposure' ? -2 : -100} max={key === 'exposure' ? 2 : 100}
+                          step={key === 'exposure' ? 0.1 : 1}
+                          onChange={value => updateLayerNode(imageLayer.id, { adjustments: { ...adjustments, [key]: value } })} />
+                      ))}
+                    </div>
+                  </div>;
+                })()}
 
                 {/* SHAPE LAYER CONTROLS & GRADIENT UI ENGINE */}
                 {selectedLayer.type === 'shape' && (

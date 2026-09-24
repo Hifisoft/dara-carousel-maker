@@ -10,6 +10,7 @@ import {
 } from '../lib/textEngine';
 import { hexOrColorToRgba } from '../lib/colorUtils';
 import { resolveCssFontFamily, loadFont } from '../lib/fontLoader';
+import { adjustedImage, imageCrop, roundedImagePath } from '../lib/imageRendering';
 import { Minus, Plus, Maximize2 } from 'lucide-react';
 
 function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
@@ -24,22 +25,36 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
 
   useEffect(() => {
     const src = layer.localPreviewUrl || layer.url;
-    if (!src) return;
+    if (!src) {
+      setImageObj(null);
+      setLoadFailed(false);
+      return;
+    }
 
+    setImageObj(null);
     setLoadFailed(false);
     const img = new window.Image();
+    let cancelled = false;
     // Only set crossOrigin for external URLs — data URLs don't need it
     // and setting it can actually block data URL loading in some browsers
     if (!src.startsWith('data:')) {
       img.crossOrigin = 'Anonymous';
     }
-    img.onload = () => setImageObj(img);
+    img.onload = () => { if (!cancelled) setImageObj(img); };
     img.onerror = () => {
-      setImageObj(null);
-      setLoadFailed(true);
+      if (!cancelled) {
+        setImageObj(null);
+        setLoadFailed(true);
+      }
     };
     img.src = src;
+    return () => { cancelled = true; };
   }, [layer.url, layer.localPreviewUrl]);
+
+  const displayImage = React.useMemo(
+    () => imageObj ? adjustedImage(imageObj, layer.adjustments) : null,
+    [imageObj, layer.adjustments],
+  );
 
   // Show visible placeholder when image fails — makes broken images obvious
   if (loadFailed || (!imageObj && !(layer.localPreviewUrl || layer.url))) {
@@ -81,13 +96,10 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
   }
 
   return (
-    <KonvaImage
+    <Group
       id={'node-' + layer.id}
       x={layer.x}
       y={layer.y}
-      width={layer.width}
-      height={layer.height}
-      image={imageObj || undefined}
       rotation={layer.rotation}
       opacity={layer.opacity}
       draggable={!layer.isLocked}
@@ -103,7 +115,26 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}
       onTransformEnd={onTransformEnd}
-    />
+    >
+      <Group clipFunc={(context) => roundedImagePath(context, layer.width, layer.height, layer.borderRadius || 0)}>
+        <KonvaImage
+          width={layer.width}
+          height={layer.height}
+          image={displayImage || undefined}
+          crop={displayImage ? imageCrop(layer, displayImage) : undefined}
+        />
+      </Group>
+      {Boolean(layer.stroke?.width) && (
+        <Rect
+          width={layer.width}
+          height={layer.height}
+          cornerRadius={layer.borderRadius || 0}
+          stroke={layer.stroke?.color || '#FFFFFF'}
+          strokeWidth={layer.stroke?.width || 0}
+          listening={false}
+        />
+      )}
+    </Group>
   );
 }
 
