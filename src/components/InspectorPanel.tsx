@@ -443,9 +443,9 @@ export function InspectorPanel() {
       <div className="inspector-tabs" role="tablist" aria-label="Inspector">
         {([
           { id: 'design', label: 'Design', icon: Palette },
-          { id: 'slot', label: 'Slots', icon: LayoutTemplate },
-          { id: 'ai', label: 'Create', icon: Sparkles },
           { id: 'layers', label: 'Layers', icon: LayersIcon },
+          { id: 'ai', label: 'Create', icon: Sparkles },
+          { id: 'slot', label: 'Slots', icon: LayoutTemplate },
           { id: 'export', label: 'Export', icon: Download },
         ] as const).map(({ id, label, icon: Icon }) => (
           <button key={id} role="tab" aria-selected={activeTab === id} onClick={() => setActiveTab(id)} title={label}>
