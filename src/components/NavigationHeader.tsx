@@ -15,6 +15,17 @@ export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModa
   const state = useCarouselStore();
   const activeDoc = state.documents.find(doc => doc.id === state.activeDocumentId);
   const template = state.getActiveTemplate();
+  const [templateName, setTemplateName] = React.useState('');
+  React.useEffect(() => {
+    setTemplateName(template?.name || '');
+  }, [template?.id, template?.name]);
+  const saveTemplateName = () => {
+    if (template && templateName.trim() && templateName.trim() !== template.name) {
+      void state.renameTemplate(template.id, templateName);
+    } else {
+      setTemplateName(template?.name || '');
+    }
+  };
   const editing = state.currentView === 'editor';
   const navigate = (view: typeof state.currentView) => {
     if (state.isTemplateEditorMode) state.exitTemplateEditMode();
@@ -46,7 +57,19 @@ export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModa
       {editing ? (
         <div className="document-heading">
           {state.isTemplateEditorMode ? (
-            <input aria-label="Template name" value={template?.name || ''} onChange={event => template && state.renameTemplate(template.id, event.target.value)} />
+            <input
+              aria-label="Template name"
+              value={templateName}
+              onChange={event => setTemplateName(event.target.value)}
+              onBlur={saveTemplateName}
+              onKeyDown={event => {
+                if (event.key === 'Enter') event.currentTarget.blur();
+                if (event.key === 'Escape') {
+                  setTemplateName(template?.name || '');
+                  event.currentTarget.blur();
+                }
+              }}
+            />
           ) : (
             <strong title={activeDoc?.title}>{activeDoc?.title || 'Untitled carousel'}</strong>
           )}

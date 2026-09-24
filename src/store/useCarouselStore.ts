@@ -1688,15 +1688,14 @@ export const useCarouselStore = create<CarouselState>()(
       const target = state.templates.find(t => t.id === templateId);
       if (!target) return;
 
-      target.name = trimmed;
-      target.updatedAt = new Date().toISOString();
-      await saveTemplateToIDB(target);
+      const updatedAt = new Date().toISOString();
+      await saveTemplateToIDB({ ...target, name: trimmed, updatedAt });
 
       set((draft) => {
         const tpl = draft.templates.find(t => t.id === templateId);
         if (tpl) {
           tpl.name = trimmed;
-          tpl.updatedAt = new Date().toISOString();
+          tpl.updatedAt = updatedAt;
         }
       });
     },
