@@ -126,9 +126,9 @@ interface CarouselState {
   deleteSlide: (slideId: string) => void;
   moveSlide: (slideId: string, fromIndex: number, toIndex: number) => void;
   updateSlideBg: (color: string) => void;
-  setSlideImageUrl: (slideId: string, url: string, prompt?: string) => void;
-  generateSlideImage: (slideId: string, customPrompt?: string, style?: string, imageModel?: string) => Promise<any>;
-  applyImageConcept: (conceptId: string, slideId: string) => void;
+  setSlideImageUrl: (slideId: string, url: string, prompt?: string, targetLayerId?: string) => void;
+  generateSlideImage: (slideId: string, customPrompt?: string, style?: string, imageModel?: string, targetLayerId?: string) => Promise<any>;
+  applyImageConcept: (conceptId: string, slideId: string, targetLayerId?: string) => void;
   importInstagramCarousel: (sourceUrl: string, images: string[], caption?: string) => Promise<string>;
 
   // Selection Mutators
@@ -151,6 +151,7 @@ interface CarouselState {
   addTextLayer: (initialText?: string, x?: number, y?: number) => void;
   addImageLayerFromFile: (file: File) => Promise<void>;
   addImageLayerFromUrl: (url: string) => void;
+  addEmptyImageLayer: () => void;
   addImageSlotLayer: (
     semanticRole?: string,
     x?: number,
@@ -2604,11 +2605,13 @@ export const useCarouselStore = create<CarouselState>()(
       }
     }),
 
-    setSlideImageUrl: (slideId, url, prompt) => set((state) => {
+    setSlideImageUrl: (slideId, url, prompt, targetLayerId) => set((state) => {
       const doc = state.documents.find((d) => d.id === state.activeDocumentId);
       const slide = doc?.slides.find((s) => s.id === slideId);
       if (!slide || !doc) return;
 
+      const explicitTarget = targetLayerId ? slide.layers.find(l => l.id === targetLayerId) : undefined;
+      if (targetLayerId && (!explicitTarget || (explicitTarget.type !== 'image' && explicitTarget.type !== 'image-slot'))) return;
       pushHistorySnapshot(get(), state, 'SET_SLIDE_IMAGE');
 
       const isLogo = (l: LayerNode) =>
@@ -2619,13 +2622,30 @@ export const useCarouselStore = create<CarouselState>()(
         (l.name && l.name.toLowerCase().includes('logo')) ||
         l.id.toLowerCase().includes('logo');
 
+      const assignImage = (layer: ImageLayerNode | ImageSlotLayerNode) => {
+        if (layer.type === 'image-slot') {
+          layer.assignedMediaUrl = url;
+          layer.url = url;
+          layer.fallbackUrl = url;
+          if (prompt) layer.prompt = prompt;
+        } else {
+          layer.url = url;
+          layer.localPreviewUrl = url;
+          layer.status = 'ready';
+          if (prompt) layer.prompt = prompt;
+        }
+      };
+
+      if (targetLayerId) {
+        assignImage(explicitTarget as ImageLayerNode | ImageSlotLayerNode);
+        persistActiveDocument(doc);
+        return;
+      }
+
       // 1. If an image-slot exists on this slide (and is NOT a logo), assign to it
       const slotLayer = slide.layers.find((l) => l.type === 'image-slot' && !isLogo(l)) as ImageSlotLayerNode | undefined;
       if (slotLayer) {
-        slotLayer.assignedMediaUrl = url;
-        slotLayer.url = url;
-        slotLayer.fallbackUrl = url;
-        if (prompt) (slotLayer as any).prompt = prompt;
+        assignImage(slotLayer);
         persistActiveDocument(doc);
         return;
       }
@@ -2633,10 +2653,7 @@ export const useCarouselStore = create<CarouselState>()(
       // 2. If an image layer exists (and is NOT a logo), update it
       const imgLayer = slide.layers.find((l) => l.type === 'image' && !isLogo(l)) as ImageLayerNode | undefined;
       if (imgLayer) {
-        imgLayer.url = url;
-        imgLayer.localPreviewUrl = url;
-        imgLayer.status = 'ready';
-        if (prompt) imgLayer.prompt = prompt;
+        assignImage(imgLayer);
         persistActiveDocument(doc);
         return;
       }
@@ -2666,11 +2683,14 @@ export const useCarouselStore = create<CarouselState>()(
       persistActiveDocument(doc);
     }),
 
-    generateSlideImage: async (slideId, customPrompt, style, imageModel) => {
+    generateSlideImage: async (slideId, customPrompt, style, imageModel, targetLayerId) => {
       const state = get();
       const doc = state.documents.find((d) => d.id === state.activeDocumentId);
       const slide = doc?.slides.find((s) => s.id === slideId);
       if (!slide || !doc) throw new Error('Slide not found');
+      if (targetLayerId && !slide.layers.some(l => l.id === targetLayerId && (l.type === 'image' || l.type === 'image-slot'))) {
+        throw new Error('The selected image layer is no longer available.');
+      }
 
       const textLayers = slide.layers.filter((l) => l.type === 'text' && (l as TextLayerNode).content?.trim()) as TextLayerNode[];
       const sortedByFontSize = [...textLayers].sort((a, b) => (b.fontSize || 0) - (a.fontSize || 0));
@@ -2715,18 +2735,18 @@ export const useCarouselStore = create<CarouselState>()(
             createdAt: new Date().toISOString()
           });
         });
-        get().setSlideImageUrl(slideId, data.imageUrl, data.optimizedPrompt);
+        get().setSlideImageUrl(slideId, data.imageUrl, data.optimizedPrompt, targetLayerId);
         return data;
       } else {
         throw new Error(data.error || 'Failed to generate image');
       }
     },
 
-    applyImageConcept: (conceptId, slideId) => {
+    applyImageConcept: (conceptId, slideId, targetLayerId) => {
       const doc = get().documents.find(item => item.id === get().activeDocumentId);
       const concept = doc?.generatedImages?.find(item => item.id === conceptId);
       if (!concept) return;
-      get().setSlideImageUrl(slideId, concept.imageUrl, concept.prompt);
+      get().setSlideImageUrl(slideId, concept.imageUrl, concept.prompt, targetLayerId);
     },
 
     // SELECTION MUTATORS
@@ -3312,6 +3332,39 @@ export const useCarouselStore = create<CarouselState>()(
 
       container.layers.unshift(newLayer);
       state.selectedLayerId = newLayerId;
+      state.editorMode = 'select';
+      save();
+    }),
+
+    addEmptyImageLayer: () => set((state) => {
+      const { container, save } = getActiveLayerContainerAndSave(state);
+      if (!container) return;
+
+      pushHistorySnapshot(get(), state, 'ADD_EMPTY_IMAGE_LAYER');
+      const id = `l-${crypto.randomUUID()}`;
+      const layer: ImageLayerNode = {
+        id,
+        name: `Image layer ${container.layers.filter(item => item.type === 'image').length + 1}`,
+        semanticRole: 'image',
+        type: 'image',
+        url: '',
+        status: 'empty',
+        x: 60,
+        y: 220,
+        width: 960,
+        height: 960,
+        rotation: 0,
+        opacity: 1,
+        isLocked: false,
+        isVisible: true,
+        zIndex: 0,
+        borderRadius: 0,
+        crop: { scale: 1, offsetX: 0, offsetY: 0 },
+      };
+      const selectedIndex = container.layers.findIndex(item => item.id === state.selectedLayerId);
+      container.layers.splice(selectedIndex < 0 ? 0 : selectedIndex, 0, layer);
+      state.selectedLayerId = id;
+      state.selectedLayerIds = [id];
       state.editorMode = 'select';
       save();
     }),

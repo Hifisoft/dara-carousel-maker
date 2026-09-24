@@ -101,6 +101,7 @@ export function InspectorPanel() {
   const moveSelectedLayersZOrder = useCarouselStore((state) => state.moveSelectedLayersZOrder);
 
   const updateLayerNode = useCarouselStore((state) => state.updateLayerNode);
+  const addEmptyImageLayer = useCarouselStore((state) => state.addEmptyImageLayer);
   const cancelImageCrop = () => {
     if (cropStartRef.current) {
       updateLayerNode(cropStartRef.current.id, { crop: cropStartRef.current.crop });
@@ -205,7 +206,8 @@ export function InspectorPanel() {
 
     try {
       const p = customPromptToUse || promptText;
-      const res = await generateSlideImage(activeSlide.id, p, imageStyle, imageModel);
+      const targetLayerId = selectedLayer?.type === 'image' || selectedLayer?.type === 'image-slot' ? selectedLayer.id : undefined;
+      const res = await generateSlideImage(activeSlide.id, p, imageStyle, imageModel, targetLayerId);
       if (res?.optimizedPrompt) {
         setPromptText(res.optimizedPrompt);
       }
@@ -221,6 +223,14 @@ export function InspectorPanel() {
 
   const handleRemoveSlideImage = () => {
     if (!activeSlide) return;
+    if (selectedLayer?.type === 'image') {
+      updateLayerNode(selectedLayer.id, { url: '', localPreviewUrl: undefined, status: 'empty' });
+      return;
+    }
+    if (selectedLayer?.type === 'image-slot') {
+      updateLayerNode(selectedLayer.id, { assignedMediaUrl: undefined, url: undefined, fallbackUrl: undefined });
+      return;
+    }
     const slotLayer = activeSlide.layers.find((l) => l.type === 'image-slot');
     if (slotLayer) {
       updateLayerNode(slotLayer.id, { assignedMediaUrl: undefined, url: undefined } as any);
@@ -1380,7 +1390,8 @@ export function InspectorPanel() {
         {/* CREATIVE AI TAB */}
         {activeTab === 'ai' && (() => {
           const slideIdx = activeDoc?.slides.findIndex(s => s.id === activeSlideId) ?? 0;
-          const existingImgLayer = activeSlide?.layers.find(
+          const targetImageLayer = selectedLayer?.type === 'image' || selectedLayer?.type === 'image-slot' ? selectedLayer : undefined;
+          const existingImgLayer = targetImageLayer || activeSlide?.layers.find(
             (l) => ((l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))) && !isLogo(l)
           );
           const existingImgUrl = (existingImgLayer as any)?.assignedMediaUrl || (existingImgLayer as any)?.url || (existingImgLayer as any)?.localPreviewUrl;
@@ -1469,6 +1480,9 @@ export function InspectorPanel() {
                 )}
 
                 {/* Primary Generate Trigger Button */}
+                {targetImageLayer && <div className="text-[11px] text-text-secondary truncate" title={targetImageLayer.name}>
+                  Destination: <span className="text-white font-medium">{targetImageLayer.name}</span>
+                </div>}
                 <button
                   className="w-full py-2.5 px-3 bg-gradient-to-r from-purple-600 via-accent-blue to-cyan-500 hover:opacity-95 text-white text-xs font-bold rounded-md flex items-center justify-center gap-2 shadow-lg transition-all disabled:opacity-50 cursor-pointer"
                   onClick={() => handleTriggerImageGeneration()}
@@ -1482,7 +1496,7 @@ export function InspectorPanel() {
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 text-yellow-300" />
-                      <span>Generate Slide #{slideIdx + 1} Image</span>
+                      <span>{targetImageLayer ? 'Generate into selected layer' : `Generate Slide #${slideIdx + 1} Image`}</span>
                     </>
                   )}
                 </button>
@@ -1567,7 +1581,7 @@ export function InspectorPanel() {
                   <div className="image-concept-grid">
                     {[...activeDoc.generatedImages].reverse().map(concept => (
                       <button key={concept.id} className={`image-concept-item ${existingImgUrl === concept.imageUrl ? 'is-active' : ''}`}
-                        onClick={() => { if (activeSlide) applyImageConcept(concept.id, activeSlide.id); }}
+                        onClick={() => { if (activeSlide) applyImageConcept(concept.id, activeSlide.id, targetImageLayer?.id); }}
                         title={`${concept.model} · ${concept.prompt}`} aria-label={`Use ${concept.model} concept from slide ${activeDoc.slides.findIndex(slide => slide.id === concept.slideId) + 1}`}>
                         <img src={concept.imageUrl} alt="" />
                         <span>Slide {activeDoc.slides.findIndex(slide => slide.id === concept.slideId) + 1}</span>
@@ -1652,6 +1666,11 @@ export function InspectorPanel() {
             </div>
 
             {/* Quick Action Bar (Group, Ungroup, Delete, Duplicate) */}
+            <button type="button"
+              className="w-full py-2 px-3 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-xs font-semibold text-white flex items-center justify-center gap-2"
+              onClick={() => addEmptyImageLayer()} disabled={!activeContainer}>
+              <Plus size={15} /> New image layer
+            </button>
             <div className="grid grid-cols-4 gap-1 pt-0.5">
               <button
                 className="py-1 px-1.5 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-[10px] font-semibold text-text-secondary hover:text-white flex items-center justify-center gap-1 disabled:opacity-30"

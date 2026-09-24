@@ -13,8 +13,9 @@ import { resolveCssFontFamily, loadFont } from '../lib/fontLoader';
 import { adjustedImage, imageCrop, roundedImagePath } from '../lib/imageRendering';
 import { Minus, Plus, Maximize2 } from 'lucide-react';
 
-function ImageNode({ layer, cropMode, onSelect, onEnterCrop, onCropChange, onDragMove, onDragEnd, onTransformEnd }: {
+function ImageNode({ layer, isSelected, cropMode, onSelect, onEnterCrop, onCropChange, onDragMove, onDragEnd, onTransformEnd }: {
   layer: ImageLayerNode;
+  isSelected: boolean;
   cropMode: boolean;
   onSelect: () => void;
   onEnterCrop: () => void;
@@ -76,6 +77,21 @@ function ImageNode({ layer, cropMode, onSelect, onEnterCrop, onCropChange, onDra
     const offsetY = availableY > 0 ? Math.max(-1, Math.min(1, (-y / imageScale / availableY) * 2 - 1)) : 0;
     onCropChange({ scale: layer.crop?.scale || 1, offsetX, offsetY });
   };
+
+  if (!layer.localPreviewUrl && !layer.url && !loadFailed) {
+    return (
+      <Group id={'node-' + layer.id} x={layer.x} y={layer.y} rotation={layer.rotation}
+        opacity={layer.opacity} draggable={!layer.isLocked} visible={layer.isVisible}
+        onClick={(e) => { e.cancelBubble = true; onSelect(); }}
+        onTap={(e) => { e.cancelBubble = true; onSelect(); }}
+        onDragMove={onDragMove} onDragEnd={onDragEnd} onTransformEnd={onTransformEnd}>
+        <Rect width={layer.width} height={layer.height} fill="rgba(255,255,255,0.001)"
+          stroke={isSelected ? '#0A84FF' : undefined} strokeWidth={isSelected ? 2 : 0} dash={[10, 8]} />
+        {isSelected && <Text text="Empty image layer" width={layer.width} y={layer.height / 2 - 16}
+          align="center" fontSize={22} fill="#8EA8D8" listening={false} />}
+      </Group>
+    );
+  }
 
   // Show visible placeholder when image fails — makes broken images obvious
   if (loadFailed || (!imageObj && !(layer.localPreviewUrl || layer.url))) {
@@ -860,6 +876,7 @@ export function KonvaCanvas() {
                   <ImageNode
                     key={layer.id}
                     layer={layer as ImageLayerNode}
+                    isSelected={selectedLayerId === layer.id}
                     cropMode={editorMode === 'crop-image' && selectedLayerId === layer.id}
                     onSelect={() => setSelectedLayerId(layer.id)}
                     onEnterCrop={() => {

@@ -240,6 +240,7 @@ export interface ImageSlotLayerNode extends BaseLayerNode {
   fallbackUrl?: string;
   url?: string;
   assignedMediaUrl?: string;
+  prompt?: string;
   slotId?: string;
   slotLabel?: string;
 }
