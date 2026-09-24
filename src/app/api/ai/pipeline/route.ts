@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { DEFAULT_AI_ROUTING, isCopyModel } from '../../../../lib/aiModels';
+import { DEFAULT_AI_ROUTING, isCopyModel } from '@/lib/aiModels';
 
 export interface AIPipelineRequest {
   idempotencyKey: string;
   topic: string;
   slideCount?: number;
   templateId?: string;
-  model?: string;
   instructions?: string;
+  model?: string;
 }
 
 export interface GeneratedSlide {
@@ -24,27 +24,63 @@ export interface AIPipelineResponse {
   error?: string;
 }
 
-async function callGemini(prompt: string, systemPrompt: string, model: string): Promise<string> {
+const FALLBACK_MODELS = [
+  'gemini-3.6-flash',
+  'gemini-3-flash-preview',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite'
+];
+
+async function callGemini(prompt: string, systemPrompt: string, preferredModel: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('NO_API_KEY');
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(30000),
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.6, topP: 0.9, maxOutputTokens: 2500, responseMimeType: 'application/json' },
-        systemInstruction: { parts: [{ text: systemPrompt }] }
-      })
+
+  const modelsToTry = [preferredModel, ...FALLBACK_MODELS.filter(m => m !== preferredModel)];
+  let lastError: Error | null = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.6,
+              topP: 0.9,
+              maxOutputTokens: 2500,
+              responseMimeType: 'application/json',
+              thinkingConfig: { thinkingBudget: 0 }
+            },
+            systemInstruction: { parts: [{ text: systemPrompt }] }
+          })
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.find((part: { text?: string }) => part.text)?.text;
+        if (text) return text;
+      }
+
+      console.warn(`[AI Pipeline] Model ${model} returned ${response.status}`);
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[AI Pipeline] Model ${model} failed:`, err.message);
     }
-  );
-  if (!response.ok) throw new Error(`Selected model ${model} returned ${response.status}`);
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.find((part: { text?: string }) => part.text)?.text;
-  if (!text) throw new Error('Selected model returned no copy');
-  return text;
+  }
+
+  throw lastError || new Error('All model endpoints failed');
 }
+
 // ─── Research & Copywriting Prompt Engine ─────────────────────────────────────
 
 function buildCopyPrompt(topic: string, slideCount: number): string {
@@ -113,30 +149,30 @@ export async function POST(req: NextRequest) {
     let title = body.topic.substring(0, 60);
     let slides: GeneratedSlide[];
 
-      try {
-        const prompt = buildCopyPrompt(body.topic, slideCount);
-        const instructions = typeof body.instructions === 'string' ? body.instructions.slice(0, 20000) : '';
-        const raw = await callGemini(prompt, `${SYSTEM_PROMPT}\n\nUSER MASTER INSTRUCTIONS:\n${instructions}`, body.model || DEFAULT_AI_ROUTING.copy);
-        
-        // Clean markdown codeblocks if present
-        const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-        const parsed = JSON.parse(cleaned);
+    try {
+      const prompt = buildCopyPrompt(body.topic, slideCount);
+      const instructions = typeof body.instructions === 'string' ? body.instructions.slice(0, 20000) : '';
+      const raw = await callGemini(prompt, `${SYSTEM_PROMPT}\n\nUSER MASTER INSTRUCTIONS:\n${instructions}`, body.model || DEFAULT_AI_ROUTING.copy);
+      
+      // Clean markdown codeblocks if present
+      const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
 
-        if (!Array.isArray(parsed.slides) || parsed.slides.length !== slideCount ||
-            parsed.slides.some((s: any) => !s || typeof s.slide_title !== 'string' || !s.slide_title.trim())) {
-          throw new Error('AI returned an incomplete carousel');
-        }
-        title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : title;
-        slides = parsed.slides.map((s: any, i: number) => ({
-          index: i,
-          segmentRole: i === 0 ? 'cover_hook' : i === slideCount - 1 ? 'cta' : 'value',
-          slide_title: s.slide_title.trim(),
-          slide_body: typeof s.slide_body === 'string' ? s.slide_body.substring(0, 210) : undefined,
-        }));
-      } catch (aiErr: any) {
-        console.error('[AI Pipeline] Gemini cascade error:', aiErr.message);
-        return NextResponse.json({ error: 'AI copy generation failed. Your topic is preserved; retry or create a template draft.' }, { status: 502 });
+      if (!Array.isArray(parsed.slides) || parsed.slides.length !== slideCount ||
+          parsed.slides.some((s: any) => !s || typeof s.slide_title !== 'string' || !s.slide_title.trim())) {
+        throw new Error('AI returned an incomplete carousel');
       }
+      title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : title;
+      slides = parsed.slides.map((s: any, i: number) => ({
+        index: i,
+        segmentRole: i === 0 ? 'cover_hook' : i === slideCount - 1 ? 'cta' : 'value',
+        slide_title: s.slide_title.trim(),
+        slide_body: typeof s.slide_body === 'string' ? s.slide_body.substring(0, 210) : undefined,
+      }));
+    } catch (aiErr: any) {
+      console.error('[AI Pipeline] Gemini cascade error:', aiErr.message);
+      return NextResponse.json({ error: 'AI copy generation failed. Your topic is preserved; retry or create a template draft.' }, { status: 502 });
+    }
 
     const response: AIPipelineResponse = { success: true, title, slides };
     return NextResponse.json(response);
