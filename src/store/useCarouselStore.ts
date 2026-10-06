@@ -12,7 +12,7 @@ import {
 } from '../lib/idb';
 import { autoSizeTextLayer } from '../lib/textEngine';
 import { DEFAULT_AI_ROUTING, isCopyModel, isDirectionModel, isImageModel } from '../lib/aiModels';
-import { DEFAULT_REVIEW_PROMPT } from '../lib/reviewPrompt';
+import { DEFAULT_CREATIVE_DIRECTOR, DEFAULT_MASTER_INSTRUCTIONS } from '../lib/aiDefaults';
 import { authorisedFetch, getCloudWorkspace } from '../lib/cloud';
 
 function layersForClipboard(layers: LayerNode[], selectedIds: string[]): LayerNode[] {
@@ -237,6 +237,7 @@ interface CarouselState {
   setApiKey: (provider: keyof AISettings['apiKeys'], key: string) => void;
   loadAISettings: () => void;
   updateAISettings: (routing: AISettings['routing'], instructions: AISettings['instructions']) => void;
+  updateCreativeDirectorSettings: (creativeDirector: AISettings['creativeDirector']) => void;
 }
 
 const SEED_TIMESTAMP = '2026-01-01T00:00:00.000Z';
@@ -1483,7 +1484,8 @@ export const useCarouselStore = create<CarouselState>()(
       preset: 'balanced',
       apiKeys: {},
       routing: DEFAULT_AI_ROUTING,
-      instructions: { copy: '', review: DEFAULT_REVIEW_PROMPT, imageCover: '', imageContent: '', imageCta: '' }
+      instructions: DEFAULT_MASTER_INSTRUCTIONS,
+      creativeDirector: DEFAULT_CREATIVE_DIRECTOR,
     },
 
     getActiveSlide: () => {
@@ -2798,6 +2800,17 @@ export const useCarouselStore = create<CarouselState>()(
 
       const slideTitle = titleLayer?.content || `Slide #${doc.slides.findIndex((s) => s.id === slideId) + 1}`;
       const slideBody = bodyLayer?.content || '';
+      const isCover = slide.segmentRole === 'cover_hook' || doc.slides[0]?.id === slideId;
+      const task = slide.segmentRole === 'cta' ? 'cta' : isCover ? 'cover' : 'content';
+      const masterPrompt = task === 'cta'
+        ? state.settings.instructions.imageCta
+        : task === 'cover'
+          ? state.settings.instructions.imageCover
+          : state.settings.instructions.imageContent;
+      const creativeRules = state.settings.creativeDirector;
+      const instructions = creativeRules.enabled
+        ? [masterPrompt, creativeRules.rules.global, creativeRules.rules[task]].filter(Boolean).join('\n\n')
+        : masterPrompt;
 
       const res = await authorisedFetch('/api/ai/image', {
         method: 'POST',
@@ -2811,11 +2824,7 @@ export const useCarouselStore = create<CarouselState>()(
           style: style || 'Cinematic Photography',
           model: imageModel || state.settings.routing.image,
           promptModel: state.settings.routing.prompt,
-          instructions: slide.segmentRole === 'cta'
-            ? state.settings.instructions.imageCta
-            : slide.segmentRole === 'cover_hook' || doc.slides[0]?.id === slideId
-              ? state.settings.instructions.imageCover
-              : state.settings.instructions.imageContent
+          instructions
         })
       });
 
@@ -3659,12 +3668,21 @@ export const useCarouselStore = create<CarouselState>()(
           state.settings.routing.review = isCopyModel(saved.routing?.review) ? saved.routing.review : DEFAULT_AI_ROUTING.review;
           state.settings.routing.prompt = isDirectionModel(saved.routing?.prompt) ? saved.routing.prompt : DEFAULT_AI_ROUTING.prompt;
           state.settings.routing.image = isImageModel(saved.routing?.image) ? saved.routing.image : DEFAULT_AI_ROUTING.image;
-          state.settings.instructions.copy = typeof saved.instructions?.copy === 'string' ? saved.instructions.copy.slice(0, 20000) : '';
-          state.settings.instructions.review = typeof saved.instructions?.review === 'string' ? saved.instructions.review.slice(0, 20000) : DEFAULT_REVIEW_PROMPT;
+          state.settings.instructions.copy = typeof saved.instructions?.copy === 'string' ? saved.instructions.copy.slice(0, 20000) : DEFAULT_MASTER_INSTRUCTIONS.copy;
+          state.settings.instructions.review = typeof saved.instructions?.review === 'string' ? saved.instructions.review.slice(0, 20000) : DEFAULT_MASTER_INSTRUCTIONS.review;
           const legacyVisualPrompt = typeof saved.instructions?.image === 'string' ? saved.instructions.image.slice(0, 20000) : '';
-          state.settings.instructions.imageCover = typeof saved.instructions?.imageCover === 'string' ? saved.instructions.imageCover.slice(0, 20000) : legacyVisualPrompt;
-          state.settings.instructions.imageContent = typeof saved.instructions?.imageContent === 'string' ? saved.instructions.imageContent.slice(0, 20000) : legacyVisualPrompt;
-          state.settings.instructions.imageCta = typeof saved.instructions?.imageCta === 'string' ? saved.instructions.imageCta.slice(0, 20000) : legacyVisualPrompt;
+          state.settings.instructions.imageCover = typeof saved.instructions?.imageCover === 'string' ? saved.instructions.imageCover.slice(0, 20000) : legacyVisualPrompt || DEFAULT_MASTER_INSTRUCTIONS.imageCover;
+          state.settings.instructions.imageContent = typeof saved.instructions?.imageContent === 'string' ? saved.instructions.imageContent.slice(0, 20000) : legacyVisualPrompt || DEFAULT_MASTER_INSTRUCTIONS.imageContent;
+          state.settings.instructions.imageCta = typeof saved.instructions?.imageCta === 'string' ? saved.instructions.imageCta.slice(0, 20000) : legacyVisualPrompt || DEFAULT_MASTER_INSTRUCTIONS.imageCta;
+          state.settings.creativeDirector = {
+            enabled: typeof saved.creativeDirector?.enabled === 'boolean' ? saved.creativeDirector.enabled : DEFAULT_CREATIVE_DIRECTOR.enabled,
+            rules: {
+              global: typeof saved.creativeDirector?.rules?.global === 'string' ? saved.creativeDirector.rules.global.slice(0, 20000) : DEFAULT_CREATIVE_DIRECTOR.rules.global,
+              cover: typeof saved.creativeDirector?.rules?.cover === 'string' ? saved.creativeDirector.rules.cover.slice(0, 20000) : DEFAULT_CREATIVE_DIRECTOR.rules.cover,
+              content: typeof saved.creativeDirector?.rules?.content === 'string' ? saved.creativeDirector.rules.content.slice(0, 20000) : DEFAULT_CREATIVE_DIRECTOR.rules.content,
+              cta: typeof saved.creativeDirector?.rules?.cta === 'string' ? saved.creativeDirector.rules.cta.slice(0, 20000) : DEFAULT_CREATIVE_DIRECTOR.rules.cta,
+            },
+          };
         });
       } catch (error) {
         console.warn('Could not load AI settings:', error);
@@ -3687,11 +3705,27 @@ export const useCarouselStore = create<CarouselState>()(
           imageCta: instructions.imageCta.slice(0, 20000),
         }
       };
-      localStorage.setItem('dara-ai-settings-v1', JSON.stringify(next));
+      const saved = JSON.parse(localStorage.getItem('dara-ai-settings-v1') || '{}');
+      localStorage.setItem('dara-ai-settings-v1', JSON.stringify({ ...saved, ...next }));
       set(state => {
         state.settings.routing = next.routing;
         state.settings.instructions = next.instructions;
       });
+    },
+
+    updateCreativeDirectorSettings: (creativeDirector) => {
+      const next = {
+        enabled: creativeDirector.enabled,
+        rules: {
+          global: creativeDirector.rules.global.slice(0, 20000),
+          cover: creativeDirector.rules.cover.slice(0, 20000),
+          content: creativeDirector.rules.content.slice(0, 20000),
+          cta: creativeDirector.rules.cta.slice(0, 20000),
+        },
+      };
+      const saved = JSON.parse(localStorage.getItem('dara-ai-settings-v1') || '{}');
+      localStorage.setItem('dara-ai-settings-v1', JSON.stringify({ ...saved, creativeDirector: next }));
+      set(state => { state.settings.creativeDirector = next; });
     }
   }))
 );

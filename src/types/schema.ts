@@ -355,6 +355,10 @@ export interface AISettings {
     imageContent: string;
     imageCta: string;
   };
+  creativeDirector: {
+    enabled: boolean;
+    rules: { global: string; cover: string; content: string; cta: string };
+  };
 }
 
 export interface AssetRecord {

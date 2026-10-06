@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Check, FileText, Upload, UserRound, Sparkles } from 'lucide-react';
 import { useCarouselStore } from '../store/useCarouselStore';
 import { COPY_MODELS, DIRECTION_MODELS, IMAGE_MODELS } from '../lib/aiModels';
-import { DEFAULT_REVIEW_PROMPT } from '../lib/reviewPrompt';
+import { DEFAULT_CREATIVE_DIRECTOR, DEFAULT_MASTER_INSTRUCTIONS } from '../lib/aiDefaults';
 import { ProfileSettingsPanel } from './ProfileSettingsPanel';
 
 const visualTasks = [
@@ -17,8 +17,10 @@ type VisualTask = typeof visualTasks[number]['key'];
 export function AISettingsPanel() {
   const settings = useCarouselStore(state => state.settings);
   const updateAISettings = useCarouselStore(state => state.updateAISettings);
+  const updateCreativeDirectorSettings = useCarouselStore(state => state.updateCreativeDirectorSettings);
   const [routing, setRouting] = useState(settings.routing);
   const [instructions, setInstructions] = useState(settings.instructions);
+  const [creativeDirector, setCreativeDirector] = useState(settings.creativeDirector);
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState<'ai' | 'profile'>('ai');
   const [visualTask, setVisualTask] = useState<VisualTask>('imageCover');
@@ -26,7 +28,8 @@ export function AISettingsPanel() {
   useEffect(() => {
     setRouting(settings.routing);
     setInstructions(settings.instructions);
-  }, [settings.routing, settings.instructions]);
+    setCreativeDirector(settings.creativeDirector);
+  }, [settings.routing, settings.instructions, settings.creativeDirector]);
 
   const importInstructions = async (file: File, task: 'copy' | 'review' | VisualTask) => {
     if (!/\.(md|txt)$/i.test(file.name) || file.size > 20000) {
@@ -92,7 +95,7 @@ export function AISettingsPanel() {
               </div>
               <textarea id={`${task}-instructions`} rows={task === 'review' ? 12 : 6} maxLength={20000} value={instructions[task]} onChange={event => setInstructions(current => ({ ...current, [task]: event.target.value }))} placeholder={task === 'copy' ? 'Voice, research standards, formatting, facts to prioritize...' : 'How should the AI review each slide?'} />
               <span className="ai-instruction-count"><FileText size={12} /> {instructions[task].length.toLocaleString()} / 20,000</span>
-              {task === 'review' && <button className="ai-reset-instructions" type="button" onClick={() => setInstructions(current => ({ ...current, review: DEFAULT_REVIEW_PROMPT }))}>Restore default review prompt</button>}
+              <button className="ai-reset-instructions" type="button" onClick={() => setInstructions(current => ({ ...current, [task]: DEFAULT_MASTER_INSTRUCTIONS[task] }))}>Restore platform default</button>
             </div>
           ))}
           <div className="ai-instruction-group">
@@ -112,7 +115,24 @@ export function AISettingsPanel() {
             </div>
             <textarea id={`${visualTask}-instructions`} rows={7} maxLength={20000} value={instructions[visualTask]} onChange={event => setInstructions(current => ({ ...current, [visualTask]: event.target.value }))} placeholder={visualTasks.find(task => task.key === visualTask)?.placeholder} />
             <span className="ai-instruction-count"><FileText size={12} /> {instructions[visualTask].length.toLocaleString()} / 20,000</span>
+            <button className="ai-reset-instructions" type="button" onClick={() => setInstructions(current => ({ ...current, [visualTask]: DEFAULT_MASTER_INSTRUCTIONS[visualTask] }))}>Restore platform default</button>
           </div>
+        </section>
+
+        <section className="ai-settings-section" aria-labelledby="creative-director-title">
+          <h2 id="creative-director-title">AI Creative Director guidelines</h2>
+          <p className="ai-settings-note">These rules are added to image-generation instructions for the matching slide type.</p>
+          <label className="ai-routing-row">
+            <span><strong>Use Creative Director guidelines</strong><small>Apply global and slide-specific rules during image generation</small></span>
+            <input type="checkbox" checked={creativeDirector.enabled} onChange={event => setCreativeDirector(current => ({ ...current, enabled: event.target.checked }))} />
+          </label>
+          {(['global', 'cover', 'content', 'cta'] as const).map(rule => (
+            <div className="ai-instruction-group" key={rule}>
+              <div className="ai-instruction-heading"><label htmlFor={`creative-${rule}`}>{rule === 'global' ? 'Global guidelines' : `${rule === 'cta' ? 'CTA' : rule} slide guidelines`}</label></div>
+              <textarea id={`creative-${rule}`} rows={3} maxLength={20000} value={creativeDirector.rules[rule]} onChange={event => setCreativeDirector(current => ({ ...current, rules: { ...current.rules, [rule]: event.target.value } }))} />
+              <button className="ai-reset-instructions" type="button" onClick={() => setCreativeDirector(current => ({ ...current, rules: { ...current.rules, [rule]: DEFAULT_CREATIVE_DIRECTOR.rules[rule] } }))}>Restore platform default</button>
+            </div>
+          ))}
         </section>
 
         <div className="ai-settings-footer">
@@ -120,6 +140,7 @@ export function AISettingsPanel() {
           <button className="primary-button" onClick={() => {
             try {
               updateAISettings(routing, instructions);
+              updateCreativeDirectorSettings(creativeDirector);
               setMessage('Settings saved on this device.');
             } catch {
               setMessage('Could not save settings. Check available browser storage.');
