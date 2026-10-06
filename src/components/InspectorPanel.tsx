@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
 import {
-  LayerNode, TextLayerNode, ImageLayerNode, ShapeLayerNode, ShapeFill, LinearGradientFill,
+  LayerNode, TextLayerNode, ImageLayerNode, ShapeLayerNode, ShapeFill, LinearGradientFill, LogoLayerNode,
   RadialGradientFill, GradientStop
 } from '../types/schema';
 import { hexOrColorToRgba } from '../lib/colorUtils';
@@ -18,6 +18,7 @@ import {
 import { TextSlotConstraints, ImageSlotLayerNode } from '../types/schema';
 import { FigmaTypographyControl } from './FigmaTypographyControl';
 import { DEFAULT_AI_ROUTING, IMAGE_MODELS } from '../lib/aiModels';
+import { ContentReviewPanel } from './ContentReviewPanel';
 
 function ImageSlider({ label, value, min, max, step = 1, unit = '', onChange }: {
   label: string;
@@ -135,6 +136,7 @@ export function InspectorPanel() {
   const removeSelectedLayers = useCarouselStore((state) => state.removeSelectedLayers);
   const copySelectedLayers = useCarouselStore((state) => state.copySelectedLayers);
   const pasteLayers = useCarouselStore((state) => state.pasteLayers);
+  const clipboardLayerCount = useCarouselStore((state) => state.clipboardLayers.filter(layer => !layer.parentId).length);
   const reorderLayer = useCarouselStore((state) => state.reorderLayer);
   const updateSlideBg = useCarouselStore((state) => state.updateSlideBg);
   const generateSlideImage = useCarouselStore((state) => state.generateSlideImage);
@@ -146,6 +148,9 @@ export function InspectorPanel() {
   const getActiveMasterLayout = useCarouselStore((state) => state.getActiveMasterLayout);
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId);
+  const brandProfiles = useCarouselStore(state => state.brandProfiles);
+  const previewBrandId = useCarouselStore(state => state.previewBrandId);
+  const previewBrand = brandProfiles.find(profile => profile.id === previewBrandId) || null;
   const activeSlide = activeDoc?.slides.find((s) => s.id === activeSlideId) || activeDoc?.slides[0];
   const activeLayout = getActiveMasterLayout();
 
@@ -849,6 +854,31 @@ export function InspectorPanel() {
                   </select>
                 </div>
 
+                {selectedLayer.type === 'logo' && (() => {
+                  const logoLayer = selectedLayer as LogoLayerNode;
+                  const sourceMode = logoLayer.sourceMode || 'fixed';
+                  const role = logoLayer.brandAssetRole || 'logoPrimary';
+                  return <section className="brand-logo-controls" aria-label="Branding">
+                    <h3>Branding</h3>
+                    <label>Logo source
+                      <select value={sourceMode} onChange={event => updateLayerNode(logoLayer.id, { sourceMode: event.target.value as 'fixed' | 'brand' })}>
+                        <option value="fixed">Fixed logo</option>
+                        <option value="brand">Brand logo</option>
+                      </select>
+                    </label>
+                    {sourceMode === 'brand' && <>
+                      <label>Brand asset role
+                        <select value={role} onChange={event => updateLayerNode(logoLayer.id, { brandAssetRole: event.target.value as 'logoPrimary' })}>
+                          <option value="logoPrimary">Primary logo</option>
+                        </select>
+                      </label>
+                      {!previewBrand && <p>Select a Brand Profile in the editor header to preview this logo.</p>}
+                      {previewBrand && !previewBrand.assets[role] && <p>{previewBrand.name} is missing its Primary Logo.</p>}
+                      {previewBrand?.assets[role] && <p>Previewing {previewBrand.name}.</p>}
+                    </>}
+                  </section>;
+                })()}
+
                 {/* TEXT LAYER CONTROLS */}
                 {selectedLayer.type === 'text' && (
                   <div className="space-y-4">
@@ -1407,6 +1437,7 @@ export function InspectorPanel() {
 
           return (
             <div className="space-y-4">
+              {!isTemplateEditorMode && <ContentReviewPanel />}
               {/* Slide Art Direction Card */}
               <div className="bg-surface-elevated rounded-lg border border-border-default p-3.5 space-y-3 shadow-md">
                 <div className="flex items-center justify-between pb-1 border-b border-border-subtle">
@@ -1695,12 +1726,12 @@ export function InspectorPanel() {
               </button>
               <button
                 className="py-1 px-1.5 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-[10px] font-semibold text-text-secondary hover:text-white flex items-center justify-center gap-1 disabled:opacity-30"
-                title="Duplicate (Cmd+D)"
+                title="Duplicate on this slide (Cmd+D)"
                 disabled={selectedLayerIds.length === 0}
                 onClick={() => duplicateSelectedLayers()}
               >
                 <Copy className="w-3 h-3" />
-                Copy
+                Duplicate
               </button>
               <button
                 className="py-1 px-1.5 bg-surface-elevated hover:bg-red-500/20 border border-border-default rounded text-[10px] font-semibold text-text-secondary hover:text-red-400 flex items-center justify-center gap-1 disabled:opacity-30"
@@ -1710,6 +1741,26 @@ export function InspectorPanel() {
               >
                 <Trash2 className="w-3 h-3" />
                 Delete
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                type="button"
+                className="py-1.5 px-2 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-[11px] font-semibold text-text-secondary hover:text-white flex items-center justify-center gap-1.5 disabled:opacity-30"
+                title="Copy selected layers (Cmd+C)"
+                disabled={selectedLayerIds.length === 0}
+                onClick={copySelectedLayers}
+              >
+                <Copy size={13} /> Copy
+              </button>
+              <button
+                type="button"
+                className="py-1.5 px-2 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-[11px] font-semibold text-text-secondary hover:text-white flex items-center justify-center gap-1.5 disabled:opacity-30"
+                title="Paste layers onto this slide (Cmd+V)"
+                disabled={!activeContainer || clipboardLayerCount === 0}
+                onClick={pasteLayers}
+              >
+                <Plus size={13} /> Paste {clipboardLayerCount > 0 ? `(${clipboardLayerCount})` : ''}
               </button>
             </div>
 
@@ -1949,6 +2000,27 @@ export function InspectorPanel() {
                   >
                     <span>Duplicate</span>
                     <span className="text-[10px] text-text-tertiary font-mono">⌘D</span>
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1 hover:bg-surface-hover flex items-center justify-between"
+                    onClick={() => {
+                      copySelectedLayers();
+                      setContextMenu(null);
+                    }}
+                  >
+                    <span>Copy</span>
+                    <span className="text-[10px] text-text-tertiary font-mono">⌘C</span>
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1 hover:bg-surface-hover flex items-center justify-between disabled:opacity-30"
+                    disabled={clipboardLayerCount === 0}
+                    onClick={() => {
+                      pasteLayers();
+                      setContextMenu(null);
+                    }}
+                  >
+                    <span>Paste</span>
+                    <span className="text-[10px] text-text-tertiary font-mono">⌘V</span>
                   </button>
                 </div>
 

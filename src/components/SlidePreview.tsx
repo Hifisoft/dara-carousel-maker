@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { LayerNode, ShapeFill } from '../types/schema';
+import { BrandProfile, LayerNode, ShapeFill } from '../types/schema';
 import { resolveCssFontFamily } from '../lib/fontLoader';
 import { resolveLetterSpacingPx, resolveLineHeightMultiplier, transformTextCase } from '../lib/textEngine';
 import { hexOrColorToRgba } from '../lib/colorUtils';
+import { resolveLayerForBrand } from '../lib/brandResolution';
 
 function fillStyle(fill: ShapeFill | string): string {
   if (typeof fill === 'string') return fill;
@@ -16,9 +17,10 @@ function fillStyle(fill: ShapeFill | string): string {
 interface SlidePreviewProps {
   slide: { layers: LayerNode[]; backgroundColor: string };
   className?: string;
+  brandProfile?: BrandProfile | null;
 }
 
-export function SlidePreview({ slide, className = '' }: SlidePreviewProps) {
+export function SlidePreview({ slide, className = '', brandProfile }: SlidePreviewProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
   useEffect(() => {
@@ -31,7 +33,7 @@ export function SlidePreview({ slide, className = '' }: SlidePreviewProps) {
   return (
     <div ref={ref} className={`slide-preview ${className}`} aria-hidden="true">
       <div className="slide-preview-scene" style={{ transform: `scale(${scale})`, background: slide.backgroundColor }}>
-        {[...slide.layers].reverse().filter(layer => layer.isVisible).map(layer => {
+        {[...slide.layers].reverse().map(layer => resolveLayerForBrand(layer, brandProfile)).filter(layer => layer.isVisible).map(layer => {
           const style: React.CSSProperties = {
             position: 'absolute', left: layer.x, top: layer.y, width: layer.width, height: layer.height,
             opacity: layer.opacity, transform: `rotate(${layer.rotation}deg)`, transformOrigin: 'top left',
@@ -55,7 +57,7 @@ export function SlidePreview({ slide, className = '' }: SlidePreviewProps) {
           if (layer.type === 'image' || layer.type === 'image-slot' || layer.type === 'logo') {
             const src = layer.type === 'image-slot' ? layer.assignedMediaUrl || layer.url || layer.fallbackUrl
               : layer.type === 'image' ? layer.localPreviewUrl || layer.url : layer.url;
-            return src ? <img key={layer.id} src={src} alt="" draggable={false} style={{ ...style, objectFit: layer.type === 'image-slot' && layer.fit === 'contain' ? 'contain' : 'cover',
+            return src ? <img key={layer.id} src={src} alt="" draggable={false} style={{ ...style, objectFit: layer.type === 'logo' || layer.type === 'image-slot' && layer.fit === 'contain' ? 'contain' : 'cover',
               objectPosition: layer.type === 'image-slot' ? `${(layer.focalPoint?.x ?? 0.5) * 100}% ${(layer.focalPoint?.y ?? 0.5) * 100}%` : 'center',
               borderRadius: 'borderRadius' in layer ? layer.borderRadius : 0,
             }} /> : null;

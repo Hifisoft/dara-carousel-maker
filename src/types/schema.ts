@@ -298,6 +298,28 @@ export interface LogoLayerNode extends BaseLayerNode {
   type: 'logo';
   url: string;
   scale: number;
+  sourceMode?: 'fixed' | 'brand';
+  brandAssetRole?: BrandAssetRole;
+}
+
+export type BrandAssetRole = 'logoPrimary' | 'logoLight' | 'logoDark' | 'iconMark';
+
+export interface BrandProfileAsset {
+  id: string;
+  role: BrandAssetRole;
+  url: string;
+  fileName: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/svg+xml';
+}
+
+export interface BrandProfile {
+  id: string;
+  workspaceId: string;
+  name: string;
+  assets: Partial<Record<BrandAssetRole, BrandProfileAsset>>;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
 }
 
 export interface CreativeDirectionConfig {
@@ -322,12 +344,16 @@ export interface AISettings {
   };
   routing: {
     copy: string;
+    review: string;
     prompt: string;
     image: string;
   };
   instructions: {
     copy: string;
-    image: string;
+    review: string;
+    imageCover: string;
+    imageContent: string;
+    imageCta: string;
   };
 }
 

@@ -1,7 +1,8 @@
-import { CarouselDocument, ImageSlotLayerNode, SlideSceneNode } from '../types/schema';
+import { BrandProfile, CarouselDocument, ImageSlotLayerNode, SlideSceneNode } from '../types/schema';
 import { resolveLineHeightMultiplier, resolveLetterSpacingPx, transformTextCase, calculateVerticalAlignOffset } from './textEngine';
 import { resolveCssFontFamily, loadFont } from './fontLoader';
 import { adjustedImage, imageCrop as cropImageLayer, roundedImagePath } from './imageRendering';
+import { resolveLayerForBrand, safeBrandFolderName } from './brandResolution';
 
 export type ExportFormat = 'png' | 'zip' | 'pdf';
 
@@ -47,7 +48,7 @@ function imageCrop(layer: ImageSlotLayerNode, image: HTMLImageElement) {
   return { x, y, width, height };
 }
 
-async function renderSlide(slide: SlideSceneNode, pixelRatio: number): Promise<Blob> {
+async function renderSlide(slide: SlideSceneNode, pixelRatio: number, brand?: BrandProfile | null): Promise<Blob> {
   const { default: Konva } = await import('konva');
   const { getGradientFillProps } = await import('../components/KonvaCanvas');
   const container = document.createElement('div');
@@ -58,7 +59,8 @@ async function renderSlide(slide: SlideSceneNode, pixelRatio: number): Promise<B
   stage.add(scene);
   try {
     scene.add(new Konva.Rect({ width: 1080, height: 1440, fill: slide.backgroundColor || '#111111', listening: false }));
-    for (const layer of [...slide.layers].reverse()) {
+    for (const sourceLayer of [...slide.layers].reverse()) {
+      const layer = resolveLayerForBrand(sourceLayer, brand);
       if (!layer.isVisible) continue;
       const common = { x: layer.x, y: layer.y, rotation: layer.rotation, opacity: layer.opacity, listening: false };
       if (layer.type === 'text') {
@@ -123,6 +125,14 @@ async function renderSlide(slide: SlideSceneNode, pixelRatio: number): Promise<B
             }));
           }
           scene.add(group);
+        } else if (layer.type === 'logo') {
+          const ratio = Math.min(layer.width / image.width, layer.height / image.height) * (layer.scale || 1);
+          const width = image.width * ratio;
+          const height = image.height * ratio;
+          const group = new Konva.Group({ ...common, width: layer.width, height: layer.height });
+          group.add(new Konva.Image({ x: (layer.width - width) / 2, y: (layer.height - height) / 2,
+            width, height, image, listening: false }));
+          scene.add(group);
         } else {
           scene.add(new Konva.Image({ ...common, width: layer.width, height: layer.height, image,
             crop: layer.type === 'image-slot' ? imageCrop(layer, image) : undefined }));
@@ -150,12 +160,12 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 export async function exportCarousel(doc: CarouselDocument, format: ExportFormat, pixelRatio: number,
-  onProgress?: (completed: number, total: number) => void) {
+  onProgress?: (completed: number, total: number) => void, brand?: BrandProfile | null) {
   if (doc.slides.length === 0) throw new Error('This carousel has no slides to export.');
   const stem = fileStem(doc.title);
   const rendered: Blob[] = [];
   for (let index = 0; index < doc.slides.length; index++) {
-    rendered.push(await renderSlide(doc.slides[index], pixelRatio));
+    rendered.push(await renderSlide(doc.slides[index], pixelRatio, brand));
     onProgress?.(index + 1, doc.slides.length);
   }
   if (format === 'pdf') {
@@ -174,6 +184,45 @@ export async function exportCarousel(doc: CarouselDocument, format: ExportFormat
   } else {
     rendered.forEach((blob, index) => downloadBlob(blob, `${stem}-slide-${String(index + 1).padStart(2, '0')}.png`));
   }
+}
+
+export async function exportBrandBatch(doc: CarouselDocument, brands: BrandProfile[], pixelRatio: number,
+  onProgress?: (progress: { brandIndex: number; brandCount: number; slideIndex: number; slideCount: number; completed: number; total: number; brandName: string }) => void) {
+  if (!brands.length) throw new Error('Select at least one brand profile.');
+  const logoRequired = doc.slides.some(slide => slide.layers.some(layer => layer.type === 'logo' && layer.sourceMode === 'brand'));
+  if (logoRequired) {
+    const missing = brands.find(brand => !brand.assets.logoPrimary?.url);
+    if (missing) throw new Error(`${missing.name} is missing a Primary Logo. Add a logo or remove the brand from this batch.`);
+  }
+
+  const total = brands.length * doc.slides.length;
+  const zip = new (await import('jszip')).default();
+  const rootFolder = zip.folder(safeBrandFolderName(doc.title, 'dara-carousel'))!;
+  const usedFolders = new Set<string>();
+  let completed = 0;
+  for (let brandIndex = 0; brandIndex < brands.length; brandIndex++) {
+    const brand = brands[brandIndex];
+    const base = safeBrandFolderName(brand.name);
+    let folder = base;
+    let suffix = 2;
+    while (usedFolders.has(folder)) folder = `${base}-${suffix++}`;
+    usedFolders.add(folder);
+    const brandFolder = rootFolder.folder(folder)!;
+    for (let slideIndex = 0; slideIndex < doc.slides.length; slideIndex++) {
+      try {
+        const blob = await renderSlide(doc.slides[slideIndex], pixelRatio, brand);
+        brandFolder.file(`${String(slideIndex + 1).padStart(2, '0')}.png`, blob);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Unknown rendering error';
+        throw new Error(`Could not export ${brand.name}, slide ${slideIndex + 1}: ${detail}`);
+      }
+      completed++;
+      onProgress?.({ brandIndex: brandIndex + 1, brandCount: brands.length, slideIndex: slideIndex + 1,
+        slideCount: doc.slides.length, completed, total, brandName: brand.name });
+    }
+  }
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 3 } });
+  downloadBlob(blob, `${safeBrandFolderName(doc.title, 'dara-carousel')}-brand-variants.zip`);
 }
 
 export async function exportSingleSlidePNG(doc: CarouselDocument, slideIndex: number) {

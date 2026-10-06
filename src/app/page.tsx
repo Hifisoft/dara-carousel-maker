@@ -9,7 +9,7 @@ import {
   Search, Trash2, LayoutGrid, Plus, Sparkles, Layers,
   Type, Image as ImageIcon, Square, Layout, X, Play,
   AlertCircle, Sliders, Upload, RefreshCw, ZoomIn, ZoomOut,
-  Copy, Circle, Minus, LayoutTemplate, Layers2
+  Copy, Circle, Minus, LayoutTemplate, Layers2, RotateCcw, RotateCw, MoreHorizontal
 } from 'lucide-react';
 
 const KonvaCanvas = dynamic(
@@ -21,14 +21,25 @@ import { SaveAsTemplateModal } from '../components/SaveAsTemplateModal';
 import { ExportModal } from '../components/ExportModal';
 import { SlidePreview } from '../components/SlidePreview';
 import { AISettingsPanel } from '../components/AISettingsPanel';
+import { WorkspaceGate } from '../components/WorkspaceGate';
+import { BrandProfilesPanel } from '../components/BrandProfilesPanel';
+import { getAllTemplatesFromIDB, saveTemplateToIDB } from '../lib/idb';
+import type { CarouselTemplate } from '../types/schema';
 
-export default function AppMain() {
+export default function Page() {
+  return <WorkspaceGate><AppMain /></WorkspaceGate>;
+}
+
+function AppMain() {
   const currentView = useCarouselStore((state) => state.currentView);
   const setView = useCarouselStore((state) => state.setView);
   const documents = useCarouselStore((state) => state.documents);
+  const brandProfiles = useCarouselStore((state) => state.brandProfiles);
+  const previewBrandId = useCarouselStore((state) => state.previewBrandId);
   const activeDocumentId = useCarouselStore((state) => state.activeDocumentId);
   const activeSlideId = useCarouselStore((state) => state.activeSlideId);
   const loadDocumentsFromStorage = useCarouselStore((state) => state.loadDocumentsFromStorage);
+  const loadBrandProfilesFromStorage = useCarouselStore((state) => state.loadBrandProfilesFromStorage);
   const openDocument = useCarouselStore((state) => state.openDocument);
   const deleteDocument = useCarouselStore((state) => state.deleteDocument);
 
@@ -95,6 +106,9 @@ export default function AppMain() {
 
   // Native File Picker Ref for Image Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const templateImportRef = useRef<HTMLInputElement>(null);
+  const [importingTemplates, setImportingTemplates] = useState(false);
+  const [templateImportMessage, setTemplateImportMessage] = useState('');
 
   // Shape Picker Popover State
   const [showShapePicker, setShowShapePicker] = useState(false);
@@ -114,13 +128,18 @@ export default function AppMain() {
   const [imageError, setImageError] = useState<string | null>(null);
   const [generatingSlideId, setGeneratingSlideId] = useState<string | null>(null);
   const [mobileEditorTab, setMobileEditorTab] = useState<'canvas' | 'inspector'>('canvas');
+  const [showMobileSlideMenu, setShowMobileSlideMenu] = useState(false);
+  const undo = useCarouselStore((state) => state.undo);
+  const redo = useCarouselStore((state) => state.redo);
+  const canUndo = useCarouselStore((state) => state.historyIndex >= 0);
+  const canRedo = useCarouselStore((state) => state.historyIndex < state.history.length - 1);
 
   const [isRenameTemplateModalOpen, setIsRenameTemplateModalOpen] = useState(false);
   const [renameTemplateIdTarget, setRenameTemplateIdTarget] = useState<string | null>(null);
   const [renameTemplateNameInput, setRenameTemplateNameInput] = useState('');
 
   // Brand Kit Sub-tabs state
-  const [brandKitTab, setBrandKitTab] = useState<'templates' | 'guidelines'>('templates');
+  const [brandKitTab, setBrandKitTab] = useState<'templates' | 'guidelines' | 'brands'>('templates');
   const [activeSkillTab, setActiveSkillTab] = useState<'global' | 'cover' | 'content' | 'cta'>('global');
   const [enableSkillContext, setEnableSkillContext] = useState(true);
   const [skillRules, setSkillRules] = useState({
@@ -141,11 +160,53 @@ export default function AppMain() {
   useEffect(() => {
     loadDocumentsFromStorage();
     loadTemplatesFromStorage();
+    loadBrandProfilesFromStorage();
     loadAISettings();
-  }, [loadDocumentsFromStorage, loadTemplatesFromStorage, loadAISettings]);
+  }, [loadDocumentsFromStorage, loadTemplatesFromStorage, loadBrandProfilesFromStorage, loadAISettings]);
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId);
+  const previewBrand = brandProfiles.find(profile => profile.id === previewBrandId) || null;
   const activeSlide = activeDoc?.slides.find((s) => s.id === activeSlideId) || activeDoc?.slides[0];
+
+  const importTemplateFile = async (file: File) => {
+    setTemplateImportMessage('');
+    if (!file.name.toLowerCase().endsWith('.json') || file.size > 20 * 1024 * 1024) {
+      setTemplateImportMessage('Choose a template JSON file under 20 MB.');
+      return;
+    }
+    setImportingTemplates(true);
+    let imported = 0;
+    let firstImportedId: string | null = null;
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      if (!parsed || typeof parsed !== 'object' || !('format' in parsed) || parsed.format !== 'dara-studio-templates-v1' ||
+          !('templates' in parsed) || !Array.isArray(parsed.templates) || parsed.templates.length > 100) {
+        throw new Error('This is not a DARA Studio template export.');
+      }
+      const incoming = parsed.templates as CarouselTemplate[];
+      if (incoming.some(template => !template || typeof template.id !== 'string' || !template.id.trim() ||
+          typeof template.name !== 'string' || !template.name.trim() || !Array.isArray(template.layouts) ||
+          template.layouts.length === 0 || template.layouts.some(layout => !layout || typeof layout.id !== 'string' || !Array.isArray(layout.layers)))) {
+        throw new Error('The template file contains an incomplete template.');
+      }
+      const existing = new Set((await getAllTemplatesFromIDB()).map(template => template.id));
+      for (const template of incoming) {
+        if (existing.has(template.id)) continue;
+        await saveTemplateToIDB(template);
+        existing.add(template.id);
+        firstImportedId ||= template.id;
+        imported++;
+      }
+      await loadTemplatesFromStorage();
+      if (firstImportedId) setActiveTemplateId(firstImportedId);
+      setTemplateImportMessage(imported ? `Restored ${imported} template${imported === 1 ? '' : 's'}. Existing templates were kept.` : 'These templates are already in this workspace.');
+    } catch (error) {
+      if (imported > 0) await loadTemplatesFromStorage();
+      setTemplateImportMessage(error instanceof Error ? error.message : 'Could not import templates.');
+    } finally {
+      setImportingTemplates(false);
+    }
+  };
 
   const filteredDocs = documents.filter(
     (doc) => (templateFilter === 'all' || (doc.templateRef.templateId === 'bbc' ? 'tpl-bbc' : doc.templateRef.templateId) === templateFilter) && (
@@ -371,7 +432,7 @@ export default function AppMain() {
             </div>
           )}
           {/* Upper Editor Workspace */}
-          <div className="flex-1 min-h-0 flex overflow-hidden relative">
+          <div className={`mobile-editor-workspace flex-1 min-h-0 flex overflow-hidden relative ${mobileEditorTab === 'inspector' ? 'is-inspector-view' : ''}`}>
             {/* Quick Tool Rail (Left Edge) */}
             <div className="tool-rail shrink-0 bg-surface border-r border-border-default flex flex-col items-center z-30 relative select-none">
               <button
@@ -482,30 +543,52 @@ export default function AppMain() {
             </div>
 
             {/* Mobile View Toggle Bar (visible only on <1024px screens) */}
-            <div className="mobile-editor-toggle lg:hidden fixed left-1/2 -translate-x-1/2 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-lg p-1 shadow-2xl flex items-center gap-1">
+            <div className="mobile-editor-toggle lg:hidden z-40 flex items-center justify-center gap-1" role="toolbar" aria-label="Mobile editor controls">
+              <button className="mobile-dock-icon" onClick={undo} disabled={!canUndo} title="Undo" aria-label="Undo"><RotateCcw size={18} /></button>
               <button
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                className={`mobile-dock-tab text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
                   mobileEditorTab === 'canvas'
-                    ? 'bg-accent-blue text-white shadow'
+                    ? 'is-active'
                     : 'text-text-secondary hover:text-white'
                 }`}
                 onClick={() => setMobileEditorTab('canvas')}
+                aria-pressed={mobileEditorTab === 'canvas'}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
                 Canvas
               </button>
               <button
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                className={`mobile-dock-tab text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
                   mobileEditorTab === 'inspector'
-                    ? 'bg-accent-blue text-white shadow'
+                    ? 'is-active'
                     : 'text-text-secondary hover:text-white'
                 }`}
                 onClick={() => setMobileEditorTab('inspector')}
+                aria-pressed={mobileEditorTab === 'inspector'}
               >
                 <Sliders className="w-3.5 h-3.5" />
                 Inspector
               </button>
+              <button className="mobile-dock-icon" onClick={redo} disabled={!canRedo} title="Redo" aria-label="Redo"><RotateCw size={18} /></button>
+              <button className="mobile-dock-icon" onClick={() => setShowMobileSlideMenu(value => !value)} disabled={isTemplateEditorMode} aria-label="Slide actions" aria-expanded={showMobileSlideMenu} title="Slide actions"><MoreHorizontal size={20} /></button>
             </div>
+            {showMobileSlideMenu && <>
+              <button className="mobile-slide-menu-dismiss lg:hidden" aria-label="Close slide actions" onClick={() => setShowMobileSlideMenu(false)} />
+              <div className="mobile-slide-menu lg:hidden" role="menu" aria-label="Slide actions">
+                <button role="menuitem" disabled={!activeSlide || generatingSlideId === activeSlide.id} onClick={async () => {
+                  if (!activeSlide) return;
+                  setShowMobileSlideMenu(false);
+                  setImageError(null);
+                  setGeneratingSlideId(activeSlide.id);
+                  try { await generateSlideImage(activeSlide.id); }
+                  catch (err) { setImageError(err instanceof Error ? err.message : 'Image generation failed.'); }
+                  finally { setGeneratingSlideId(null); }
+                }}><Sparkles size={16} /> Generate visual</button>
+                <button role="menuitem" disabled={!activeSlide} onClick={() => { if (activeSlide) duplicateSlide(activeSlide.id); setShowMobileSlideMenu(false); }}><Copy size={16} /> Duplicate slide</button>
+                <button role="menuitem" onClick={() => { setShowLayoutPicker(true); setShowMobileSlideMenu(false); }}><Plus size={16} /> Add slide</button>
+                {activeSlide && activeDoc && activeDoc.slides.length > 1 && <button role="menuitem" className="is-destructive" onClick={() => { deleteSlide(activeSlide.id); setShowMobileSlideMenu(false); }}><Trash2 size={16} /> Delete slide</button>}
+              </div>
+            </>}
           </div>
 
           {/* Bottom Horizontal Strip: Master Layout Navigator (in Template Mode) vs Carousel Slide Deck (in Standard Mode) */}
@@ -590,7 +673,7 @@ export default function AppMain() {
                     onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setActiveSlideId(slide.id); } }}
                     onClick={() => setActiveSlideId(slide.id)}
                   >
-                    <SlidePreview slide={slide} />
+                    <SlidePreview slide={slide} brandProfile={previewBrand} />
                     <span className="slide-number">
                       {idx + 1}
                     </span>
@@ -722,8 +805,8 @@ export default function AppMain() {
 
       {/* BRAND KIT & TEMPLATES VIEW */}
       {(currentView === 'templates' || currentView === 'creative-director') && (
-        <main className="pt-[104px] px-6 max-w-[1280px] mx-auto pb-12 flex-1 overflow-y-auto w-full">
-          <div className="flex items-center justify-between border-b border-border-default pb-4 mb-6">
+        <main className="brand-kit-page pt-[104px] px-6 max-w-[1280px] mx-auto pb-12 flex-1 overflow-y-auto w-full">
+          <div className="brand-kit-heading flex items-center justify-between border-b border-border-default pb-4 mb-6">
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">Brand Kit & Design System</h1>
               <p className="text-xs text-text-secondary">
@@ -731,7 +814,7 @@ export default function AppMain() {
               </p>
             </div>
 
-            <div className="flex bg-surface-elevated p-1 rounded-lg border border-border-default">
+            <div className="brand-kit-tabs flex bg-surface-elevated p-1 rounded-lg border border-border-default">
               <button
                 className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
                   brandKitTab === 'templates'
@@ -758,6 +841,10 @@ export default function AppMain() {
               >
                 AI Creative Director Guidelines
               </button>
+              <button
+                className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${brandKitTab === 'brands' ? 'bg-accent-blue text-white shadow' : 'text-text-secondary hover:text-white'}`}
+                onClick={() => { setBrandKitTab('brands'); setView('templates'); }}
+              >Brand Profiles</button>
             </div>
           </div>
 
@@ -765,7 +852,7 @@ export default function AppMain() {
           {brandKitTab === 'templates' && (
             <div className="space-y-6">
               <div className="bg-surface border border-border-default rounded-lg p-4 flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
+                <div className="template-primary-actions flex items-center gap-3">
                   <label className="text-xs font-semibold text-text-secondary">Active Template:</label>
                   <select
                     className="bg-surface-elevated border border-border-default rounded px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-border-focus"
@@ -799,6 +886,15 @@ export default function AppMain() {
                     }}
                   >
                     Save Carousel as Template
+                  </button>
+
+                  <input ref={templateImportRef} type="file" accept=".json,application/json" className="sr-only" aria-label="Import templates JSON" onChange={event => {
+                    const file = event.target.files?.[0];
+                    if (file) void importTemplateFile(file);
+                    event.target.value = '';
+                  }} />
+                  <button className="px-3 py-1.5 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-xs font-medium text-white flex items-center gap-1.5" disabled={importingTemplates} onClick={() => templateImportRef.current?.click()}>
+                    <Upload className="w-3.5 h-3.5" /> Import templates
                   </button>
 
                   <button
@@ -880,6 +976,8 @@ export default function AppMain() {
                     Apply to Carousel
                   </button>
                 </div>
+
+                {templateImportMessage && <p role="status" className="w-full text-xs text-text-secondary">{templateImportMessage}</p>}
               </div>
 
               {/* Master Layout Cards Grid */}
@@ -1050,6 +1148,8 @@ export default function AppMain() {
               </div>
             </div>
           )}
+
+          {brandKitTab === 'brands' && <BrandProfilesPanel />}
         </main>
       )}
 

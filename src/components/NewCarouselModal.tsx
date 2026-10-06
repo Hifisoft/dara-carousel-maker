@@ -5,6 +5,7 @@ import { useCarouselStore } from '../store/useCarouselStore';
 import { X, Sparkles, Loader2, Link2, PenLine } from 'lucide-react';
 import { SlidePreview } from './SlidePreview';
 import { InstagramImportForm } from './InstagramImportForm';
+import { authorisedFetch } from '../lib/cloud';
 
 interface NewCarouselModalProps {
   isOpen: boolean;
@@ -46,7 +47,7 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
     try {
       let aiCopy;
       if (mode === 'ai') {
-        const response = await fetch('/api/ai/pipeline', {
+        const response = await authorisedFetch('/api/ai/pipeline', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), topic: prompt.trim(), slideCount, templateId: template.id, model: settings.routing.copy, instructions: settings.instructions.copy }),
         });

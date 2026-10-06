@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DEFAULT_AI_ROUTING, isDirectionModel, isImageModel } from '../../../../lib/aiModels';
+import { workspaceServiceStatus } from '../../../../lib/serverAuth';
+import { requestLunaText } from '../../../../lib/openaiServer';
 
 export interface AIImageRequest {
   slideId?: string;
@@ -23,6 +25,7 @@ async function visualDirection(body: AIImageRequest, model: string, instructions
   const system = `You are an art director for a social carousel. Write one vivid image-generation prompt. Describe the focal subject, composition, lighting and palette. Do not include lettering, logos or UI. Return only the prompt.\nMaster instructions: ${instructions}`;
   const user = `Topic: ${body.topic || 'General'}\nSlide title: ${body.slideTitle || ''}\nSlide body: ${body.slideBody || ''}\nStyle: ${body.style || 'Cinematic Photography'}\nUser visual direction: ${body.customPrompt || 'Develop a visual concept for this slide.'}`;
   const [provider, modelId] = model.split(':');
+  if (model === 'openai:gpt-6-luna') return requestLunaText(user, system, { maxOutputTokens: 650 });
   const key = provider === 'openai' ? requireKey('OPENAI_API_KEY') : requireKey('DEEPSEEK_API_KEY');
   const endpoint = provider === 'openai' ? 'https://api.openai.com/v1/chat/completions' : 'https://api.deepseek.com/chat/completions';
   const response = await fetch(endpoint, {
@@ -72,14 +75,15 @@ async function generateImage(prompt: string, model: string): Promise<string> {
     return imageDataUrl(image);
   }
 
-  const isOpenAI = model === 'openai:gpt-image-2.5-flare';
+  const isOpenAI = model.startsWith('openai:');
+  const openAIModel = model.slice('openai:'.length);
   const key = isOpenAI ? requireKey('OPENAI_API_KEY') : requireKey('XAI_API_KEY');
   const response = await fetch(isOpenAI ? 'https://api.openai.com/v1/images/generations' : 'https://api.x.ai/v1/images/generations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
     signal: AbortSignal.timeout(120000),
     body: JSON.stringify(isOpenAI
-      ? { model: 'gpt-image-2.5-flare', prompt, size: '1024x1280', output_format: 'png', n: 1 }
+      ? { model: openAIModel, prompt, size: openAIModel === 'gpt-image-2.5-flare' ? '1024x1280' : '1024x1536', quality: 'medium', output_format: 'png', n: 1 }
       : { model: 'grok-imagine-image-2.0', prompt, aspect_ratio: '3:4', response_format: 'b64_json', n: 1 })
   });
   if (!response.ok) throw new Error(`${isOpenAI ? 'ChatGPT Image' : 'Grok Image'} returned ${response.status}. Check its key and quota.`);
@@ -91,6 +95,8 @@ async function generateImage(prompt: string, model: string): Promise<string> {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await workspaceServiceStatus(request, 'image');
+    if (access !== 200) return NextResponse.json({ error: access === 429 ? 'Image generation limit reached. Try again in an hour.' : 'Sign in to an organisation to use AI.' }, { status: access });
     const body: AIImageRequest = await request.json();
     if (body.model !== undefined && !isImageModel(body.model)) return NextResponse.json({ error: 'Unsupported image model' }, { status: 400 });
     if (body.promptModel !== undefined && !isDirectionModel(body.promptModel)) return NextResponse.json({ error: 'Unsupported visual direction model' }, { status: 400 });

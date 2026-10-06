@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Stage, Layer, Rect, Ellipse, Line, Text, Image as KonvaImage, Transformer, Group, Circle } from 'react-konva';
 import { useCarouselStore } from '../store/useCarouselStore';
-import { LayerNode, TextLayerNode, ImageLayerNode, ImageSlotLayerNode, ShapeLayerNode, ShapeFill, Point2D } from '../types/schema';
+import { LayerNode, TextLayerNode, ImageLayerNode, ImageSlotLayerNode, ShapeLayerNode, ShapeFill, Point2D, LogoLayerNode } from '../types/schema';
 import {
   resolveLineHeightMultiplier, resolveLetterSpacingPx, transformTextCase,
   calculateVerticalAlignOffset
@@ -11,6 +11,7 @@ import {
 import { hexOrColorToRgba } from '../lib/colorUtils';
 import { resolveCssFontFamily, loadFont } from '../lib/fontLoader';
 import { adjustedImage, imageCrop, roundedImagePath } from '../lib/imageRendering';
+import { resolveLayerForBrand } from '../lib/brandResolution';
 import { Minus, Plus, Maximize2 } from 'lucide-react';
 
 function ImageNode({ layer, isSelected, cropMode, onSelect, onEnterCrop, onCropChange, onDragMove, onDragEnd, onTransformEnd }: {
@@ -211,6 +212,35 @@ function ImageNode({ layer, isSelected, cropMode, onSelect, onEnterCrop, onCropC
   );
 }
 
+function LogoNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
+  layer: LogoLayerNode;
+  onSelect: () => void;
+  onDragMove: (e: any) => void;
+  onDragEnd: (e: any) => void;
+  onTransformEnd: (e: any) => void;
+}) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    setImage(null);
+    if (!layer.url) return;
+    const loaded = new window.Image();
+    if (!layer.url.startsWith('data:')) loaded.crossOrigin = 'anonymous';
+    loaded.onload = () => setImage(loaded);
+    loaded.src = layer.url;
+  }, [layer.url]);
+  const scale = image ? Math.min(layer.width / image.width, layer.height / image.height) * Math.max(0.05, Math.min(1, layer.scale || 1)) : 1;
+  const width = image ? image.width * scale : layer.width;
+  const height = image ? image.height * scale : layer.height;
+  return <Group id={`node-${layer.id}`} x={layer.x} y={layer.y} width={layer.width} height={layer.height}
+    rotation={layer.rotation} opacity={layer.opacity} draggable={!layer.isLocked} visible={layer.isVisible}
+    onClick={event => { event.cancelBubble = true; onSelect(); }}
+    onTap={event => { event.cancelBubble = true; onSelect(); }}
+    onDragMove={onDragMove} onDragEnd={onDragEnd} onTransformEnd={onTransformEnd}>
+    {image ? <KonvaImage x={(layer.width - width) / 2} y={(layer.height - height) / 2} width={width} height={height} image={image} /> :
+      <Rect width={layer.width} height={layer.height} fill="#202023" stroke="#777780" strokeWidth={1} dash={[6, 4]} listening={false} />}
+  </Group>;
+}
+
 
 function ImageSlotNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
   layer: ImageSlotLayerNode;
@@ -408,6 +438,8 @@ export function KonvaCanvas() {
   const setEditorMode = useCarouselStore((state) => state.setEditorMode);
   const activeShapeType = useCarouselStore((state) => state.activeShapeType);
   const addShapeLayer = useCarouselStore((state) => state.addShapeLayer);
+  const brandProfiles = useCarouselStore(state => state.brandProfiles);
+  const previewBrandId = useCarouselStore(state => state.previewBrandId);
 
   const isTemplateEditorMode = useCarouselStore((state) => state.isTemplateEditorMode);
   const getActiveMasterLayout = useCarouselStore((state) => state.getActiveMasterLayout);
@@ -420,6 +452,8 @@ export function KonvaCanvas() {
   const activeLayout = getActiveMasterLayout();
 
   const currentLayers = isTemplateEditorMode ? (activeLayout?.layers || []) : (activeSlide?.layers || []);
+  const previewBrand = brandProfiles.find(profile => profile.id === previewBrandId) || null;
+  const renderLayers = currentLayers.map(layer => isTemplateEditorMode ? layer : resolveLayerForBrand(layer, previewBrand));
   const currentBgColor = isTemplateEditorMode ? (activeLayout?.backgroundColor || '#111111') : (activeSlide?.backgroundColor || '#111111');
 
   const handleUpdateLayer = (layerId: string, patch: Partial<LayerNode>) => {
@@ -430,6 +464,15 @@ export function KonvaCanvas() {
   const trRef = useRef<any>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.4);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia('(pointer: coarse)');
+    const update = () => setIsCoarsePointer(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
 
   // Interactive Shape Drawing State
   const [isDrawing, setIsDrawing] = useState(false);
@@ -656,7 +699,7 @@ export function KonvaCanvas() {
       return;
     }
 
-    if (e.target === stageRef.current) {
+    if (e.target === stageRef.current || e.target.hasName?.('canvas-background')) {
       const stage = stageRef.current;
       const pointer = stage.getPointerPosition();
       if (pointer) {
@@ -790,17 +833,21 @@ export function KonvaCanvas() {
           onMouseDown={handleStageMouseDown}
           onMouseMove={handleStageMouseMove}
           onMouseUp={handleStageMouseUp}
+          onTouchStart={handleStageMouseDown}
+          onTouchMove={handleStageMouseMove}
+          onTouchEnd={handleStageMouseUp}
         >
           <Layer>
             {/* Background Render */}
             <Rect
+              name="canvas-background"
               width={1080}
               height={1440}
               fill={currentBgColor}
             />
 
             {/* Render Canvas Layers (Canonical front-to-back array reversed for Konva back-to-front stage drawing) */}
-            {currentLayers.slice().reverse().map((layer) => {
+            {renderLayers.slice().reverse().map((layer) => {
               // TEXT LAYER
               if (layer.type === 'text') {
                 const textLayer = layer as TextLayerNode;
@@ -859,7 +906,15 @@ export function KonvaCanvas() {
                       e.cancelBubble = true;
                       setSelectedLayerId(layer.id);
                     }}
+                    onTap={(e) => {
+                      e.cancelBubble = true;
+                      setSelectedLayerId(layer.id);
+                    }}
                     onDblClick={(e) => {
+                      e.cancelBubble = true;
+                      setEditingTextId(layer.id);
+                    }}
+                    onDblTap={(e) => {
                       e.cancelBubble = true;
                       setEditingTextId(layer.id);
                     }}
@@ -905,6 +960,14 @@ export function KonvaCanvas() {
                 );
               }
 
+              if (layer.type === 'logo') {
+                return <LogoNode key={layer.id} layer={layer}
+                  onSelect={() => setSelectedLayerId(layer.id)}
+                  onDragMove={event => handleDragMove(event, layer)}
+                  onDragEnd={event => handleDragEnd(event, layer)}
+                  onTransformEnd={event => handleTransformEnd(event, layer)} />;
+              }
+
               // SHAPE LAYER
               if (layer.type === 'shape') {
                 const shapeLayer = layer as ShapeLayerNode;
@@ -928,6 +991,7 @@ export function KonvaCanvas() {
                         e.cancelBubble = true;
                         setSelectedLayerId(layer.id);
                       }}
+                      onTap={(e) => { e.cancelBubble = true; setSelectedLayerId(layer.id); }}
                       onDragMove={(e) => handleDragMove(e, layer)}
                       onDragEnd={(e) => handleDragEnd(e, layer)}
                       onTransformEnd={(e) => handleTransformEnd(e, layer)}
@@ -951,6 +1015,7 @@ export function KonvaCanvas() {
                         e.cancelBubble = true;
                         setSelectedLayerId(layer.id);
                       }}
+                      onTap={(e) => { e.cancelBubble = true; setSelectedLayerId(layer.id); }}
                       onDragMove={(e) => handleDragMove(e, layer)}
                       onDragEnd={(e) => handleDragEnd(e, layer)}
                       onTransformEnd={(e) => handleTransformEnd(e, layer)}
@@ -977,6 +1042,7 @@ export function KonvaCanvas() {
                       e.cancelBubble = true;
                       setSelectedLayerId(layer.id);
                     }}
+                    onTap={(e) => { e.cancelBubble = true; setSelectedLayerId(layer.id); }}
                     onDragMove={(e) => handleDragMove(e, layer)}
                     onDragEnd={(e) => handleDragEnd(e, layer)}
                     onTransformEnd={(e) => handleTransformEnd(e, layer)}
@@ -1274,7 +1340,7 @@ export function KonvaCanvas() {
                 if (newBox.width < 20 || newBox.height < 20) return oldBox;
                 return newBox;
               }}
-              anchorSize={12}
+              anchorSize={isCoarsePointer ? Math.min(72, Math.max(12, Math.round(18 / scale))) : 12}
               anchorCornerRadius={2}
               borderStroke="#0A84FF"
               anchorStroke="#0A84FF"

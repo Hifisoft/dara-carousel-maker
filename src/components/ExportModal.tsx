@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
 import { Download, FileImage, FileText, X, Archive } from 'lucide-react';
-import { exportCarousel, ExportFormat } from '../lib/export';
+import { exportBrandBatch, exportCarousel, ExportFormat } from '../lib/export';
+import { hasBrandLogoLayers } from '../lib/brandResolution';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -13,23 +14,35 @@ interface ExportModalProps {
 export function ExportModal({ isOpen, onClose }: ExportModalProps) {
   const documents = useCarouselStore((state) => state.documents);
   const activeDocumentId = useCarouselStore((state) => state.activeDocumentId);
+  const brandProfiles = useCarouselStore(state => state.brandProfiles);
+  const previewBrandId = useCarouselStore(state => state.previewBrandId);
   const activeDoc = documents.find((d) => d.id === activeDocumentId);
 
   const [resolution, setResolution] = useState<'1x' | '2x' | '3x'>('2x');
   const [exportFormat, setExportFormat] = useState<ExportFormat>('zip');
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [mode, setMode] = useState<'standard' | 'brand-batch'>('standard');
+  const [selectedBrandIds, setSelectedBrandIds] = useState<string[]>([]);
 
   if (!isOpen || !activeDoc) return null;
+
+  const selectedBrands = brandProfiles.filter(profile => selectedBrandIds.includes(profile.id));
+  const requiresBrandLogo = activeDoc.slides.some(hasBrandLogoLayers);
+  const missingLogoBrand = requiresBrandLogo ? selectedBrands.find(profile => !profile.assets.logoPrimary?.url) : undefined;
+  const previewBrand = brandProfiles.find(profile => profile.id === previewBrandId) || null;
 
   const handleExport = async () => {
     setIsExporting(true);
     setExportStatus('Rendering slides...');
 
     try {
+      if (requiresBrandLogo && (!previewBrand || !previewBrand.assets.logoPrimary?.url)) {
+        throw new Error('Choose a Brand Profile with a Primary Logo in the editor header before using Standard Export.');
+      }
       await exportCarousel(activeDoc, exportFormat, Number(resolution[0]), (completed, total) => {
         setExportStatus(`Rendering slide ${completed} of ${total}...`);
-      });
+      }, previewBrand);
       setExportStatus(null);
       onClose();
     } catch (err: any) {
@@ -37,6 +50,20 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const handleBrandBatch = async () => {
+    if (!selectedBrands.length || missingLogoBrand) return;
+    setIsExporting(true);
+    try {
+      await exportBrandBatch(activeDoc, selectedBrands, Number(resolution[0]), progress => {
+        setExportStatus(`Brand ${progress.brandIndex} of ${progress.brandCount}: ${progress.brandName} · Slide ${progress.slideIndex} of ${progress.slideCount} · ${progress.completed} / ${progress.total} images`);
+      });
+      setExportStatus(null);
+      onClose();
+    } catch (err) {
+      setExportStatus(`Export Error: ${err instanceof Error ? err.message : 'Could not render this batch.'}`);
+    } finally { setIsExporting(false); }
   };
 
   return (
@@ -51,8 +78,32 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
           </button>
         </div>
 
+        <div className="export-modes" role="tablist" aria-label="Export mode">
+          <button role="tab" aria-selected={mode === 'standard'} onClick={() => { setMode('standard'); setExportStatus(null); }}>Standard Export</button>
+          <button role="tab" aria-selected={mode === 'brand-batch'} onClick={() => { setMode('brand-batch'); setExportStatus(null); }}>Brand Batch</button>
+        </div>
+
+        {mode === 'brand-batch' && <section className="brand-batch-list" aria-label="Brand profiles for export">
+          <p>Export this carousel for:</p>
+          {brandProfiles.length === 0 ? <p className="brand-batch-empty">Create Brand Profiles in Brand Kit to make a batch.</p> : brandProfiles.map(profile => {
+            const checked = selectedBrandIds.includes(profile.id);
+            const missing = requiresBrandLogo && !profile.assets.logoPrimary?.url;
+            return <label className="brand-batch-option" key={profile.id}>
+              <input type="checkbox" checked={checked} onChange={event => setSelectedBrandIds(current => event.target.checked
+                ? [...current, profile.id] : current.filter(id => id !== profile.id))} disabled={isExporting} />
+              <span>{profile.name}</span>
+              {missing ? <small className="is-missing">Missing Primary Logo</small> : profile.assets.logoPrimary && <img src={profile.assets.logoPrimary.url} alt="" />}
+            </label>;
+          })}
+          {requiresBrandLogo && <p className="brand-batch-note">This carousel has Brand Logo layers. Every selected brand needs a Primary Logo.</p>}
+          <div className="brand-batch-count">
+            <strong>{selectedBrands.length} brands × {activeDoc.slides.length} slides</strong>
+            <span>{selectedBrands.length * activeDoc.slides.length} images</span>
+          </div>
+        </section>}
+
         {/* Format Selection */}
-        <div className="space-y-3">
+        {mode === 'standard' && <div className="space-y-3">
           <label className="text-xs font-bold text-text-secondary uppercase tracking-wider">Export Format</label>
           <div className="grid grid-cols-3 gap-2">
             <button
@@ -96,7 +147,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
               <span className="text-[10px] text-text-tertiary">Multi-page</span>
             </button>
           </div>
-        </div>
+        </div>}
 
         {/* Resolution Quality Selection */}
         <div className="space-y-3">
@@ -121,7 +172,7 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
             ))}
           </div>
           <p className="text-[11px] text-text-tertiary">
-            {activeDoc.slides.length} slides · {Number(resolution[0]) * 1080} × {Number(resolution[0]) * 1440} px
+          {activeDoc.slides.length} slides · {Number(resolution[0]) * 1080} × {Number(resolution[0]) * 1440} px
           </p>
         </div>
 
@@ -144,11 +195,11 @@ export function ExportModal({ isOpen, onClose }: ExportModalProps) {
           </button>
           <button
             className="primary-button flex-1"
-            onClick={handleExport}
-            disabled={isExporting}
+            onClick={mode === 'standard' ? handleExport : handleBrandBatch}
+            disabled={isExporting || (mode === 'standard' ? requiresBrandLogo && (!previewBrand || !previewBrand.assets.logoPrimary?.url) : !selectedBrands.length || !!missingLogoBrand)}
           >
-            <Download className="w-4 h-4" />
-            {isExporting ? 'Exporting...' : 'Export'}
+            {mode === 'brand-batch' ? <Archive className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+            {isExporting ? 'Exporting...' : mode === 'brand-batch' ? `Export ${selectedBrands.length * activeDoc.slides.length} Images` : 'Export'}
           </button>
         </div>
       </div>

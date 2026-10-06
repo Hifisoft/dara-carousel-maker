@@ -3,6 +3,8 @@
 import React from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
 import { LayoutGrid, Layers, Settings2, ChevronLeft, RotateCcw, RotateCw, Plus, Download, LayoutTemplate, Menu, X, Check, Save, Link2 } from 'lucide-react';
+import { WorkspaceMenu, useWorkspace } from './WorkspaceGate';
+import { hasBrandLogoLayers } from '../lib/brandResolution';
 
 interface NavigationHeaderProps {
   onOpenCreationModal: () => void;
@@ -13,6 +15,7 @@ interface NavigationHeaderProps {
 export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModal, onOpenExportModal }: NavigationHeaderProps) {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const state = useCarouselStore();
+  const workspace = useWorkspace();
   const activeDoc = state.documents.find(doc => doc.id === state.activeDocumentId);
   const template = state.getActiveTemplate();
   const [templateName, setTemplateName] = React.useState('');
@@ -40,7 +43,7 @@ export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModa
 
   return (
     <header className={`studio-header ${editing ? 'is-editing' : ''}`}>
-      <div className="header-leading">
+      <div className={`header-leading ${workspace ? 'has-workspace' : ''}`}>
         {editing ? (
           <button className="library-back" onClick={() => navigate('dashboard')} title="Back to carousels">
             <ChevronLeft size={19} /><span>Carousels</span>
@@ -51,7 +54,8 @@ export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModa
             <span>DARA <span className="wordmark-studio">Studio</span></span>
           </button>
         )}
-        {!editing && <span className="workspace-label">Personal workspace</span>}
+        {!editing && !workspace && <span className="workspace-label">Personal workspace</span>}
+        {workspace && <WorkspaceMenu />}
       </div>
 
       {editing ? (
@@ -76,8 +80,18 @@ export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModa
           <span className="document-subtitle">
             {state.isTemplateEditorMode ? 'Template' : `${activeDoc?.slides.length || 0} slides`}
             <span className="subtitle-dot" />
-            {activeDoc?.sourceUrl && !state.isTemplateEditorMode ? <a href={activeDoc.sourceUrl} target="_blank" rel="noopener noreferrer" title="Open Instagram source"><Link2 size={11} /> Instagram source</a> : state.isTemplateEditorMode && state.templateDirty ? 'Unsaved changes' : 'Saved on this device'}
+            {activeDoc?.sourceUrl && !state.isTemplateEditorMode ? <a href={activeDoc.sourceUrl} target="_blank" rel="noopener noreferrer" title="Open Instagram source"><Link2 size={11} /> Instagram source</a> : state.isTemplateEditorMode && state.templateDirty ? 'Unsaved changes' : workspace ? 'Shared workspace' : 'Saved on this device'}
           </span>
+          {!state.isTemplateEditorMode && activeDoc?.slides.some(hasBrandLogoLayers) && state.brandProfiles.length > 0 && (
+            <label className="brand-preview-picker">
+              <span>Previewing</span>
+              <select aria-label="Preview brand profile" value={state.previewBrandId || ''}
+                onChange={event => state.setPreviewBrandId(event.target.value || null)}>
+                <option value="">Master design</option>
+                {state.brandProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}{profile.assets.logoPrimary ? '' : ' · missing logo'}</option>)}
+              </select>
+            </label>
+          )}
         </div>
       ) : (
         <nav className="studio-navigation" aria-label="Workspace">

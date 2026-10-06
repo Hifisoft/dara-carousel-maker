@@ -1,20 +1,25 @@
 export const COPY_MODELS = [
   { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+  { id: 'openai:gpt-6-luna', label: 'GPT-6 Luna' },
 ] as const;
 
 export const DIRECTION_MODELS = [
+  { id: 'openai:gpt-6-luna', label: 'GPT-6 Luna' },
   { id: 'openai:gpt-5.4-mini', label: 'ChatGPT (GPT-5.4 Mini)' },
   { id: 'deepseek:deepseek-flash', label: 'DeepSeek (Flash)' },
 ] as const;
 
 export const IMAGE_MODELS = [
+  { id: 'openai:gpt-image-1.5', label: 'GPT-Image-1.5' },
+  { id: 'openai:gpt-image-1', label: 'GPT-Image-1' },
   { id: 'gemini:gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image' },
-  { id: 'openai:gpt-image-2.5-flare', label: 'ChatGPT Image' },
+  { id: 'openai:gpt-image-2.5-flare', label: 'GPT-Image-2.5 Flare' },
   { id: 'xai:grok-imagine-image-2.0', label: 'Grok Image' },
 ] as const;
 
 export const DEFAULT_AI_ROUTING = {
   copy: COPY_MODELS[0].id,
+  review: COPY_MODELS[0].id,
   prompt: DIRECTION_MODELS[0].id,
   image: IMAGE_MODELS[0].id,
 };

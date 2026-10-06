@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { Link2, Loader2, Upload } from 'lucide-react';
 import { useCarouselStore } from '../store/useCarouselStore';
+import { authorisedFetch } from '../lib/cloud';
 
 export function InstagramImportForm({ onClose }: { onClose: () => void }) {
   const importCarousel = useCarouselStore(state => state.importInstagramCarousel);
@@ -15,7 +16,7 @@ export function InstagramImportForm({ onClose }: { onClose: () => void }) {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/instagram/import', {
+      const response = await authorisedFetch('/api/instagram/import', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim() })
       });

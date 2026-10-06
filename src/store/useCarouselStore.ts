@@ -2,15 +2,47 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import {
   CarouselDocument, SlideSceneNode, LayerNode, TextLayerNode, ImageLayerNode, ImageSlotLayerNode,
-  ShapeLayerNode, ShapeFill, AISettings, AssetRecord, CarouselTemplate, MasterLayoutNode, LogoLayerNode
+  ShapeLayerNode, ShapeFill, AISettings, AssetRecord, CarouselTemplate, MasterLayoutNode, LogoLayerNode, BrandProfile
 } from '../types/schema';
 
 import {
   saveDocumentToIDB, getAllDocumentsFromIDB, deleteDocumentFromIDB, importLegacyLocalStorageToIDB,
-  saveTemplateToIDB, getAllTemplatesFromIDB, deleteTemplateFromIDB
+  saveTemplateToIDB, getAllTemplatesFromIDB, deleteTemplateFromIDB,
+  saveBrandProfileToIDB, getAllBrandProfilesFromIDB, deleteBrandProfileFromIDB
 } from '../lib/idb';
 import { autoSizeTextLayer } from '../lib/textEngine';
 import { DEFAULT_AI_ROUTING, isCopyModel, isDirectionModel, isImageModel } from '../lib/aiModels';
+import { DEFAULT_REVIEW_PROMPT } from '../lib/reviewPrompt';
+import { authorisedFetch, getCloudWorkspace } from '../lib/cloud';
+
+function layersForClipboard(layers: LayerNode[], selectedIds: string[]): LayerNode[] {
+  const included = new Set(selectedIds);
+  let added = true;
+  while (added) {
+    added = false;
+    layers.forEach((layer) => {
+      if (layer.parentId && included.has(layer.parentId) && !included.has(layer.id)) {
+        included.add(layer.id);
+        added = true;
+      }
+    });
+  }
+
+  const byId = new Map(layers.map((layer) => [layer.id, layer]));
+  return layers.filter((layer) => included.has(layer.id)).map((layer) => {
+    const copied = JSON.parse(JSON.stringify(layer)) as LayerNode;
+    if (copied.parentId && !included.has(copied.parentId)) {
+      let ancestor = byId.get(copied.parentId);
+      while (ancestor) {
+        copied.x += ancestor.x;
+        copied.y += ancestor.y;
+        ancestor = ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
+      }
+      copied.parentId = null;
+    }
+    return copied;
+  });
+}
 
 
 interface HistorySnapshot {
@@ -41,6 +73,8 @@ interface CarouselState {
 
   // Template System State
   templates: CarouselTemplate[];
+  brandProfiles: BrandProfile[];
+  previewBrandId: string | null;
   activeTemplateId: string | null;
   activeLayoutId: string | null;
   isTemplateEditorMode: boolean;
@@ -91,14 +125,21 @@ interface CarouselState {
   setDrawingShape: (shape: DrawingShapeState | null) => void;
 
   loadDocumentsFromStorage: () => Promise<void>;
+  resetWorkspace: () => void;
   openDocument: (id: string) => void;
   createDocument: (title: string, topic: string, slideCount: number, templateId: string, aiCopy?: { title?: string; slides?: Array<{ index: number; segmentRole: string; slide_title?: string; slide_body?: string }> }) => Promise<string>;
+
 
 
   deleteDocument: (id: string) => Promise<void>;
 
   // Template System Actions
   loadTemplatesFromStorage: () => Promise<void>;
+  loadBrandProfilesFromStorage: () => Promise<void>;
+  createBrandProfile: (name: string, createdBy?: string) => Promise<string>;
+  updateBrandProfile: (id: string, patch: Partial<Pick<BrandProfile, 'name' | 'assets'>>) => Promise<void>;
+  deleteBrandProfile: (id: string) => Promise<void>;
+  setPreviewBrandId: (id: string | null) => void;
   createTemplate: (name: string, startFromType?: 'blank' | 'duplicate' | 'carousel', sourceId?: string) => Promise<string>;
   createTemplateFromCarousel: (documentId: string, name: string, selectedSlideIds?: string[], layerSlotOverrides?: Record<string, string>) => Promise<string>;
   saveCurrentSlideAsLayout: (slideId: string, templateId: string, layoutName: string, role: MasterLayoutNode['role'], layerSlotOverrides?: Record<string, string>) => Promise<string>;
@@ -1410,6 +1451,8 @@ export const useCarouselStore = create<CarouselState>()(
 
     // Template System Initial State
     templates: SYSTEM_TEMPLATES,
+    brandProfiles: [],
+    previewBrandId: null,
     activeTemplateId: 'tpl-minimalist',
     activeLayoutId: 'layout-min-cover',
     isTemplateEditorMode: false,
@@ -1440,7 +1483,7 @@ export const useCarouselStore = create<CarouselState>()(
       preset: 'balanced',
       apiKeys: {},
       routing: DEFAULT_AI_ROUTING,
-      instructions: { copy: '', image: '' }
+      instructions: { copy: '', review: DEFAULT_REVIEW_PROMPT, imageCover: '', imageContent: '', imageCta: '' }
     },
 
     getActiveSlide: () => {
@@ -1476,30 +1519,70 @@ export const useCarouselStore = create<CarouselState>()(
 
     // TEMPLATE ACTIONS IMPLEMENTATION
     loadTemplatesFromStorage: async () => {
-      let storedTpls = await getAllTemplatesFromIDB();
-      if (!storedTpls || storedTpls.length === 0) {
-        for (const sysTpl of SYSTEM_TEMPLATES) {
-          await saveTemplateToIDB(sysTpl);
-        }
-        storedTpls = SYSTEM_TEMPLATES;
-      } else {
-        for (const sysTpl of SYSTEM_TEMPLATES) {
-          const exists = storedTpls.some(t => t.id === sysTpl.id);
-          if (!exists) {
-            await saveTemplateToIDB(sysTpl);
-            storedTpls.unshift(sysTpl);
-          }
-        }
+      const savedTemplates = await getAllTemplatesFromIDB();
+      const systemIds = new Set(SYSTEM_TEMPLATES.map(template => template.id));
+      const savedDefaultId = savedTemplates.find(template => template.isDefault)?.id;
+      const defaultId = savedDefaultId || SYSTEM_TEMPLATES.find(template => template.isDefault)?.id || SYSTEM_TEMPLATES[0]?.id;
+      const systemTemplates = SYSTEM_TEMPLATES.map(template => ({ ...template, isDefault: template.id === defaultId }));
+      const customTemplates = savedTemplates.filter(template => !systemIds.has(template.id));
+      const storedTpls = [...systemTemplates, ...customTemplates];
+
+      // Keep local copies in sync with the bundled platform presets without touching user templates.
+      if (!getCloudWorkspace()) {
+        for (const template of systemTemplates) await saveTemplateToIDB(template);
       }
       set((state) => {
         state.templates = storedTpls;
-        const defaultTpl = storedTpls.find(t => t.id === 'tpl-explain-editorial') || storedTpls.find(t => t.isDefault) || storedTpls[0];
+        const defaultTpl = storedTpls.find(t => t.isDefault) || storedTpls[0];
         if (defaultTpl) {
           state.activeTemplateId = defaultTpl.id;
           state.activeLayoutId = defaultTpl.layouts[0]?.id || null;
         }
       });
     },
+
+    loadBrandProfilesFromStorage: async () => {
+      const profiles = await getAllBrandProfilesFromIDB();
+      set(state => {
+        state.brandProfiles = profiles;
+        if (state.previewBrandId && !profiles.some(profile => profile.id === state.previewBrandId)) state.previewBrandId = null;
+      });
+    },
+
+    createBrandProfile: async (name, createdBy = 'local') => {
+      const now = new Date().toISOString();
+      const id = `brand-${crypto.randomUUID()}`;
+      const profile: BrandProfile = {
+        id, workspaceId: getCloudWorkspace() || 'local', name: name.trim(), assets: {},
+        createdAt: now, updatedAt: now, createdBy,
+      };
+      if (!profile.name) throw new Error('Enter a brand name.');
+      await saveBrandProfileToIDB(profile);
+      set(state => { state.brandProfiles.unshift(profile); });
+      return id;
+    },
+
+    updateBrandProfile: async (id, patch) => {
+      const current = get().brandProfiles.find(profile => profile.id === id);
+      if (!current) throw new Error('Brand profile not found.');
+      const next = { ...current, ...patch, assets: patch.assets || current.assets, updatedAt: new Date().toISOString() };
+      if (patch.name !== undefined && !patch.name.trim()) throw new Error('Enter a brand name.');
+      await saveBrandProfileToIDB(next);
+      set(state => {
+        const index = state.brandProfiles.findIndex(profile => profile.id === id);
+        if (index >= 0) state.brandProfiles[index] = next;
+      });
+    },
+
+    deleteBrandProfile: async (id) => {
+      await deleteBrandProfileFromIDB(id);
+      set(state => {
+        state.brandProfiles = state.brandProfiles.filter(profile => profile.id !== id);
+        if (state.previewBrandId === id) state.previewBrandId = null;
+      });
+    },
+
+    setPreviewBrandId: id => set(state => { state.previewBrandId = id; }),
 
     createTemplate: async (name, startFromType = 'blank', sourceId) => {
       const state = get();
@@ -2233,20 +2316,34 @@ export const useCarouselStore = create<CarouselState>()(
     }),
 
     loadDocumentsFromStorage: async () => {
-      await importLegacyLocalStorageToIDB();
+      if (!getCloudWorkspace()) await importLegacyLocalStorageToIDB();
       let storedDocs = await getAllDocumentsFromIDB();
-      if (!storedDocs || storedDocs.length === 0) {
+      if ((!storedDocs || storedDocs.length === 0) && !getCloudWorkspace()) {
         await saveDocumentToIDB(DEFAULT_DOC);
         storedDocs = [DEFAULT_DOC];
       }
       set((state) => {
         state.documents = storedDocs;
         if (!state.activeDocumentId || !storedDocs.find(d => d.id === state.activeDocumentId)) {
-          state.activeDocumentId = storedDocs[0].id;
-          state.activeSlideId = storedDocs[0].slides[0]?.id || null;
+          state.activeDocumentId = storedDocs[0]?.id || null;
+          state.activeSlideId = storedDocs[0]?.slides[0]?.id || null;
         }
       });
     },
+
+    resetWorkspace: () => set((state) => {
+      state.documents = [];
+      state.templates = SYSTEM_TEMPLATES;
+      state.brandProfiles = [];
+      state.previewBrandId = null;
+      state.activeDocumentId = null;
+      state.activeSlideId = null;
+      state.selectedLayerId = null;
+      state.selectedLayerIds = [];
+      state.history = [];
+      state.historyIndex = -1;
+      state.currentView = 'dashboard';
+    }),
 
     openDocument: (id) => set((state) => {
       const doc = state.documents.find(d => d.id === id);
@@ -2264,7 +2361,7 @@ export const useCarouselStore = create<CarouselState>()(
 
       const state = get();
       const selectedTpl = state.templates.find(t => t.id === templateId) || state.templates.find(t => t.isDefault) || state.templates[0];
-      const newDocId = `doc-${Date.now()}`;
+      const newDocId = `doc-${crypto.randomUUID()}`;
 
       // ── Brand asset extraction from template ────────────────────────────────
       // Pull headline/body fonts from template design tokens (fallback to Space Grotesk)
@@ -2472,6 +2569,7 @@ export const useCarouselStore = create<CarouselState>()(
     setActiveSlideId: (slideId) => set((state) => {
       state.activeSlideId = slideId;
       state.selectedLayerId = null;
+      state.selectedLayerIds = [];
       state.editingTextId = null;
       state.editorMode = 'select';
     }),
@@ -2701,7 +2799,7 @@ export const useCarouselStore = create<CarouselState>()(
       const slideTitle = titleLayer?.content || `Slide #${doc.slides.findIndex((s) => s.id === slideId) + 1}`;
       const slideBody = bodyLayer?.content || '';
 
-      const res = await fetch('/api/ai/image', {
+      const res = await authorisedFetch('/api/ai/image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2713,7 +2811,11 @@ export const useCarouselStore = create<CarouselState>()(
           style: style || 'Cinematic Photography',
           model: imageModel || state.settings.routing.image,
           promptModel: state.settings.routing.prompt,
-          instructions: state.settings.instructions.image
+          instructions: slide.segmentRole === 'cta'
+            ? state.settings.instructions.imageCta
+            : slide.segmentRole === 'cover_hook' || doc.slides[0]?.id === slideId
+              ? state.settings.instructions.imageCover
+              : state.settings.instructions.imageContent
         })
       });
 
@@ -3086,21 +3188,32 @@ export const useCarouselStore = create<CarouselState>()(
         const tpl = state.templates.find((t) => t.id === state.activeTemplateId);
         const layout = tpl?.layouts.find((l) => l.id === state.activeLayoutId);
         if (!layout) return;
-        const selected = layout.layers.filter((l) => state.selectedLayerIds.includes(l.id));
-        state.clipboardLayers = JSON.parse(JSON.stringify(selected));
+        state.clipboardLayers = layersForClipboard(layout.layers, state.selectedLayerIds);
         state.clipboardSourceId = layout.id;
       } else {
         const doc = state.documents.find((d) => d.id === state.activeDocumentId);
         const slide = doc?.slides.find((s) => s.id === state.activeSlideId);
         if (!slide) return;
-        const selected = slide.layers.filter((l) => state.selectedLayerIds.includes(l.id));
-        state.clipboardLayers = JSON.parse(JSON.stringify(selected));
+        state.clipboardLayers = layersForClipboard(slide.layers, state.selectedLayerIds);
         state.clipboardSourceId = slide.id;
       }
     }),
 
     pasteLayers: () => set((state) => {
       if (state.clipboardLayers.length === 0) return;
+
+      const idMap = new Map(state.clipboardLayers.map((layer) => [layer.id, `l-copy-${crypto.randomUUID()}`]));
+      const copy = (layer: LayerNode, offset: number): LayerNode => {
+        const pasted = JSON.parse(JSON.stringify(layer)) as LayerNode;
+        pasted.id = idMap.get(layer.id)!;
+        pasted.parentId = layer.parentId && idMap.has(layer.parentId) ? idMap.get(layer.parentId)! : null;
+        if (pasted.type === 'group') pasted.childIds = pasted.childIds.map((id) => idMap.get(id) || id);
+        if (!pasted.parentId) {
+          pasted.x += offset;
+          pasted.y += offset;
+        }
+        return pasted;
+      };
 
       if (state.isTemplateEditorMode) {
         const tpl = state.templates.find((t) => t.id === state.activeTemplateId);
@@ -3111,21 +3224,10 @@ export const useCarouselStore = create<CarouselState>()(
 
         const isSameTarget = state.clipboardSourceId === layout.id;
         const offset = isSameTarget ? 24 : 0;
-        const pastedIds: string[] = [];
-
-        state.clipboardLayers.forEach((copied, idx) => {
-          const newId = `l-copy-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
-          const pasted: LayerNode = {
-            ...JSON.parse(JSON.stringify(copied)),
-            id: newId,
-            x: copied.x + offset,
-            y: copied.y + offset
-          };
-          layout.layers.unshift(pasted);
-          if (!layout.rootLayerIds) layout.rootLayerIds = layout.layers.map((l) => l.id);
-          layout.rootLayerIds.unshift(newId);
-          pastedIds.push(newId);
-        });
+        const pasted = state.clipboardLayers.map((layer) => copy(layer, offset));
+        layout.layers.unshift(...pasted);
+        layout.rootLayerIds = layout.layers.filter((layer) => !layer.parentId).map((layer) => layer.id);
+        const pastedIds = pasted.filter((layer) => !layer.parentId).map((layer) => layer.id);
 
         state.selectedLayerIds = pastedIds;
         state.selectedLayerId = pastedIds[0] || null;
@@ -3139,21 +3241,10 @@ export const useCarouselStore = create<CarouselState>()(
 
         const isSameTarget = state.clipboardSourceId === slide.id;
         const offset = isSameTarget ? 24 : 0;
-        const pastedIds: string[] = [];
-
-        state.clipboardLayers.forEach((copied, idx) => {
-          const newId = `l-copy-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
-          const pasted: LayerNode = {
-            ...JSON.parse(JSON.stringify(copied)),
-            id: newId,
-            x: copied.x + offset,
-            y: copied.y + offset
-          };
-          slide.layers.unshift(pasted);
-          if (!slide.rootLayerIds) slide.rootLayerIds = slide.layers.map((l) => l.id);
-          slide.rootLayerIds.unshift(newId);
-          pastedIds.push(newId);
-        });
+        const pasted = state.clipboardLayers.map((layer) => copy(layer, offset));
+        slide.layers.unshift(...pasted);
+        slide.rootLayerIds = slide.layers.filter((layer) => !layer.parentId).map((layer) => layer.id);
+        const pastedIds = pasted.filter((layer) => !layer.parentId).map((layer) => layer.id);
 
         state.selectedLayerIds = pastedIds;
         state.selectedLayerId = pastedIds[0] || null;
@@ -3565,10 +3656,15 @@ export const useCarouselStore = create<CarouselState>()(
         const saved = JSON.parse(localStorage.getItem('dara-ai-settings-v1') || '{}');
         set(state => {
           state.settings.routing.copy = isCopyModel(saved.routing?.copy) ? saved.routing.copy : DEFAULT_AI_ROUTING.copy;
+          state.settings.routing.review = isCopyModel(saved.routing?.review) ? saved.routing.review : DEFAULT_AI_ROUTING.review;
           state.settings.routing.prompt = isDirectionModel(saved.routing?.prompt) ? saved.routing.prompt : DEFAULT_AI_ROUTING.prompt;
           state.settings.routing.image = isImageModel(saved.routing?.image) ? saved.routing.image : DEFAULT_AI_ROUTING.image;
           state.settings.instructions.copy = typeof saved.instructions?.copy === 'string' ? saved.instructions.copy.slice(0, 20000) : '';
-          state.settings.instructions.image = typeof saved.instructions?.image === 'string' ? saved.instructions.image.slice(0, 20000) : '';
+          state.settings.instructions.review = typeof saved.instructions?.review === 'string' ? saved.instructions.review.slice(0, 20000) : DEFAULT_REVIEW_PROMPT;
+          const legacyVisualPrompt = typeof saved.instructions?.image === 'string' ? saved.instructions.image.slice(0, 20000) : '';
+          state.settings.instructions.imageCover = typeof saved.instructions?.imageCover === 'string' ? saved.instructions.imageCover.slice(0, 20000) : legacyVisualPrompt;
+          state.settings.instructions.imageContent = typeof saved.instructions?.imageContent === 'string' ? saved.instructions.imageContent.slice(0, 20000) : legacyVisualPrompt;
+          state.settings.instructions.imageCta = typeof saved.instructions?.imageCta === 'string' ? saved.instructions.imageCta.slice(0, 20000) : legacyVisualPrompt;
         });
       } catch (error) {
         console.warn('Could not load AI settings:', error);
@@ -3579,12 +3675,16 @@ export const useCarouselStore = create<CarouselState>()(
       const next = {
         routing: {
           copy: isCopyModel(routing.copy) ? routing.copy : DEFAULT_AI_ROUTING.copy,
+          review: isCopyModel(routing.review) ? routing.review : DEFAULT_AI_ROUTING.review,
           prompt: isDirectionModel(routing.prompt) ? routing.prompt : DEFAULT_AI_ROUTING.prompt,
           image: isImageModel(routing.image) ? routing.image : DEFAULT_AI_ROUTING.image,
         },
         instructions: {
           copy: instructions.copy.slice(0, 20000),
-          image: instructions.image.slice(0, 20000),
+          review: instructions.review.slice(0, 20000),
+          imageCover: instructions.imageCover.slice(0, 20000),
+          imageContent: instructions.imageContent.slice(0, 20000),
+          imageCta: instructions.imageCta.slice(0, 20000),
         }
       };
       localStorage.setItem('dara-ai-settings-v1', JSON.stringify(next));
@@ -3613,6 +3713,7 @@ function pushHistorySnapshot(currentState: CarouselState, draftState: any, descr
   draftState.history.push(snapshot);
   if (draftState.history.length > 50) draftState.history.shift();
   draftState.historyIndex = draftState.history.length - 1;
+
 }
 
 function persistActiveDocument(doc?: CarouselDocument) {
