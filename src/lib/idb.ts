@@ -17,7 +17,7 @@ async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
     return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
+      reader.onerror = () => reject(new Error('Could not read a local image asset for saving.'));
       reader.readAsDataURL(blob);
     });
   } catch {
