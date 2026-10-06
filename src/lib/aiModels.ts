@@ -1,6 +1,9 @@
 export const COPY_MODELS = [
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
   { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
   { id: 'openai:gpt-6-luna', label: 'GPT-6 Luna' },
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
 ] as const;
 
 export const DIRECTION_MODELS = [
