@@ -104,7 +104,7 @@ Be precise about current capabilities:
 
 ## Accounts, Collaboration, and Security
 
-Supabase Auth handles email/password registration and sign-in, password recovery, and optional email links. Users can create organisations, invite members, switch organisations, import their local carousels into a workspace, and manage their profile/sign out. Owners manage membership. Invite links are single-use, expire after seven days, and are restricted to the invited confirmed email. Resend sends invite mail.
+Supabase Auth uses Google OAuth as the primary sign-in and account-creation path; email/password registration and sign-in, password recovery, and optional email links remain available. Users can create organisations, invite members, switch organisations, import their local carousels into a workspace, and manage their profile/sign out. Owners manage membership. Invite links are single-use, expire after seven days, and are restricted to the invited confirmed email. Resend sends invite mail.
 
 Server routes authenticate bearer tokens and check organisation membership for AI/Instagram services. Limits are currently 12 image operations, 30 copy/review operations, and 20 Instagram imports per user per hour through the database RPC. Validate inputs and enforce authorization on the server; client-side visibility is not access control.
 

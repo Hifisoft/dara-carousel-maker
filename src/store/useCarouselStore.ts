@@ -64,7 +64,7 @@ interface DrawingShapeState {
 
 interface CarouselState {
   // Navigation & Shell
-  currentView: 'dashboard' | 'editor' | 'templates' | 'creative-director' | 'settings';
+  currentView: 'dashboard' | 'editor' | 'templates' | 'settings';
   
   // Document Collection & Active State
   documents: CarouselDocument[];

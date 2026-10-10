@@ -7,7 +7,7 @@ import { NewCarouselModal } from '../components/NewCarouselModal';
 import dynamic from 'next/dynamic';
 import {
   Search, Trash2, LayoutGrid, Plus, Sparkles, Layers,
-  Type, Image as ImageIcon, Square, Layout, X, Play,
+  Type, Image as ImageIcon, Square, Layout, X,
   AlertCircle, Sliders, Upload, RefreshCw, ZoomIn, ZoomOut,
   Copy, Circle, Minus, LayoutTemplate, Layers2, RotateCcw, RotateCw, MoreHorizontal
 } from 'lucide-react';
@@ -139,17 +139,7 @@ function AppMain() {
   const [renameTemplateNameInput, setRenameTemplateNameInput] = useState('');
 
   // Brand Kit Sub-tabs state
-  const [brandKitTab, setBrandKitTab] = useState<'templates' | 'guidelines' | 'brands'>('templates');
-  const [activeSkillTab, setActiveSkillTab] = useState<'global' | 'cover' | 'content' | 'cta'>('global');
-  const [enableSkillContext, setEnableSkillContext] = useState(true);
-  const [skillRules, setSkillRules] = useState({
-    global: 'Keep compositions minimal and cinematic. Maintain high contrast typography and clear brand color hierarchy.',
-    cover: 'Dopamine hook headline under 10 words. Eye-catching subtitle and hero image layout.',
-    content: '1 primary takeaway per slide. High readability 28px+ body copy.',
-    cta: 'Strong bold conversion prompt. Clear arrow graphic or action trigger handle.'
-  });
-  const [simInput, setSimInput] = useState('Generate a slide prompt for 5 AI productivity tools');
-  const [simResult, setSimResult] = useState<string | null>(null);
+  const [brandKitTab, setBrandKitTab] = useState<'templates' | 'brands'>('templates');
 
   // Template View state
   const [templateZoom, setTemplateZoom] = useState(100);
@@ -341,12 +331,6 @@ function AppMain() {
       addImageLayerFromFile(file);
       e.target.value = '';
     }
-  };
-
-  const handleRunSimulation = () => {
-    setSimResult(
-      `[COMPILED SYSTEM PROMPT]\nSkill Context: ${skillRules[activeSkillTab]}\n\nUser Input: "${simInput}"\n\nResulting Prompt:\n"High contrast dark slide with punchy headline, neon blue accents, and 60fps layout hierarchy."\n\nMetrics: 1,248 tokens | Latency: ~320ms | Provider: Claude 3.5 Sonnet`
-    );
   };
 
   return (
@@ -804,13 +788,13 @@ function AppMain() {
       )}
 
       {/* BRAND KIT & TEMPLATES VIEW */}
-      {(currentView === 'templates' || currentView === 'creative-director') && (
+      {currentView === 'templates' && (
         <main className="brand-kit-page pt-[104px] px-6 max-w-[1280px] mx-auto pb-12 flex-1 overflow-y-auto w-full">
           <div className="brand-kit-heading flex items-center justify-between border-b border-border-default pb-4 mb-6">
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">Brand Kit & Design System</h1>
               <p className="text-xs text-text-secondary">
-                Configure master slide templates, brand guidelines, and AI Creative Director rule engines.
+                Configure reusable slide templates and brand profiles.
               </p>
             </div>
 
@@ -827,19 +811,6 @@ function AppMain() {
                 }}
               >
                 Design Templates
-              </button>
-              <button
-                className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  brandKitTab === 'guidelines'
-                    ? 'bg-accent-blue text-white shadow'
-                    : 'text-text-secondary hover:text-white'
-                }`}
-                onClick={() => {
-                  setBrandKitTab('guidelines');
-                  setView('creative-director');
-                }}
-              >
-                AI Creative Director Guidelines
               </button>
               <button
                 className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${brandKitTab === 'brands' ? 'bg-accent-blue text-white shadow' : 'text-text-secondary hover:text-white'}`}
@@ -1047,104 +1018,6 @@ function AppMain() {
                     </div>
                   );
                 })}
-              </div>
-            </div>
-          )}
-
-          {/* SUB-TAB 2: GUIDELINES */}
-          {brandKitTab === 'guidelines' && (
-            <div className="space-y-6">
-              <div className="bg-surface border border-border-default rounded-lg p-5 flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="skillContext"
-                    className="w-4 h-4 rounded accent-accent-blue cursor-pointer"
-                    checked={enableSkillContext}
-                    onChange={(e) => setEnableSkillContext(e.target.checked)}
-                  />
-                  <label htmlFor="skillContext" className="text-xs font-semibold text-white cursor-pointer">
-                    Enable skill context in prompt engineering pipeline
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-2 border border-dashed border-border-default rounded-lg px-4 py-2 bg-surface-elevated hover:bg-surface-hover cursor-pointer transition-colors">
-                  <Upload className="w-4 h-4 text-accent-blue" />
-                  <span className="text-xs font-medium text-text-secondary">
-                    Upload Brand Guidelines Document (.pdf, .txt, .md)
-                  </span>
-                </div>
-              </div>
-
-              <div className="bg-surface border border-border-default rounded-lg overflow-hidden">
-                <div className="flex border-b border-border-default bg-surface-elevated">
-                  {(['global', 'cover', 'content', 'cta'] as const).map((tabKey) => (
-                    <button
-                      key={tabKey}
-                      className={`px-5 py-3 text-xs font-semibold capitalize border-b-2 transition-colors ${
-                        activeSkillTab === tabKey
-                          ? 'border-accent-blue text-white bg-surface'
-                          : 'border-transparent text-text-secondary hover:text-white'
-                      }`}
-                      onClick={() => setActiveSkillTab(tabKey)}
-                    >
-                      {tabKey === 'global' ? 'Global Rules' : `${tabKey} Slide`}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="p-5 space-y-3">
-                  <label className="block text-xs font-semibold text-text-secondary uppercase">
-                    {activeSkillTab.toUpperCase()} INSTRUCTIONS & CREATIVE DIRECTION
-                  </label>
-                  <textarea
-                    className="w-full bg-surface-elevated border border-border-default rounded p-3 text-xs text-white font-mono leading-relaxed outline-none focus:border-border-focus resize-none"
-                    rows={6}
-                    value={skillRules[activeSkillTab]}
-                    onChange={(e) => setSkillRules({ ...skillRules, [activeSkillTab]: e.target.value })}
-                  />
-                  <button className="px-4 py-2 bg-accent-blue text-white text-xs font-semibold rounded hover:bg-blue-600 transition-colors">
-                    Save Skill Directives
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-surface border border-border-default rounded-lg p-5 space-y-4">
-                <div className="flex justify-between items-center border-b border-border-subtle pb-3">
-                  <span className="text-xs font-bold text-white uppercase tracking-wider">
-                    DRY-RUN SIMULATION CONSOLE
-                  </span>
-                  <span className="text-[10px] text-accent-blue font-mono bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                    Live Compiler Active
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-[11px] font-semibold text-text-secondary uppercase">
-                    Test Input Prompt
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      className="flex-1 bg-surface-elevated border border-border-default rounded px-3 py-2 text-xs text-white outline-none focus:border-border-focus"
-                      value={simInput}
-                      onChange={(e) => setSimInput(e.target.value)}
-                    />
-                    <button
-                      className="px-4 py-2 bg-gradient-to-r from-purple-600 to-accent-blue text-white text-xs font-semibold rounded hover:opacity-90 flex items-center gap-1.5"
-                      onClick={handleRunSimulation}
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      Run Simulation
-                    </button>
-                  </div>
-                </div>
-
-                {simResult && (
-                  <div className="bg-[#0b0c10] border border-border-default rounded p-4 font-mono text-xs text-green-400 whitespace-pre-wrap leading-relaxed">
-                    {simResult}
-                  </div>
-                )}
               </div>
             </div>
           )}

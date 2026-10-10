@@ -32,6 +32,7 @@ export function WorkspaceGate({ children }: { children: React.ReactNode }) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up' | 'reset' | 'email-link'>('sign-in');
+  const [showEmailAuth, setShowEmailAuth] = useState(false);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [linkSent, setLinkSent] = useState(false);
   const [name, setName] = useState('');
@@ -142,7 +143,22 @@ export function WorkspaceGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   const switchAuthMode = (mode: typeof authMode) => {
-    setAuthMode(mode); setError(''); setLinkSent(false); setPassword(''); setConfirmPassword('');
+    setAuthMode(mode); setShowEmailAuth(true); setError(''); setLinkSent(false); setPassword(''); setConfirmPassword('');
+  };
+
+  const continueWithGoogle = async () => {
+    setBusy(true); setError('');
+    try {
+      const redirectTo = new URL(window.location.pathname + window.location.search, window.location.origin).toString();
+      const { error: authError } = await getCloudClient().auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo },
+      });
+      if (authError) throw authError;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not continue with Google. Please try again.');
+      setBusy(false);
+    }
   };
 
   const submitAuth = async (event: React.FormEvent) => {
@@ -216,8 +232,16 @@ export function WorkspaceGate({ children }: { children: React.ReactNode }) {
       <section className="account-panel">
         <div className="account-mark"><Building2 size={21} /> DARA Studio</div>
         <h1>Sign in to your workspace</h1>
-        <p>{authMode === 'sign-in' ? 'Sign in with your email and password.' : authMode === 'sign-up' ? 'Create your account to join or start a workspace.' : authMode === 'reset' ? 'We will email you a link to set a new password.' : 'We will email you a secure sign-in link.'}</p>
+        <p>{authMode === 'sign-in' ? 'Sign in or create an account to join or start a workspace.' : authMode === 'sign-up' ? 'Create your account to join or start a workspace.' : authMode === 'reset' ? 'We will email you a link to set a new password.' : 'We will email you a secure sign-in link.'}</p>
         {linkSent ? <div className="account-notice"><Mail size={18} /> Check your inbox for the next step.</div> : (
+          <>
+          <button className="google-sign-in" type="button" onClick={continueWithGoogle} disabled={busy}>
+            {busy ? <Loader2 className="animate-spin" size={17} /> : <GoogleMark />}
+            Continue with Google
+          </button>
+          {!showEmailAuth && <button className="account-email-toggle" type="button" onClick={() => setShowEmailAuth(true)}>Continue with email</button>}
+          {showEmailAuth && <>
+          <div className="account-divider"><span>or continue with email</span></div>
           <form onSubmit={submitAuth}>
             <label htmlFor="account-email">Email address</label>
             <input id="account-email" type="email" required autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" />
@@ -231,13 +255,15 @@ export function WorkspaceGate({ children }: { children: React.ReactNode }) {
             </>}
             <button className="primary-button" disabled={busy} type="submit">{busy ? <Loader2 className="animate-spin" size={16} /> : <ArrowRight size={16} />}{authMode === 'sign-in' ? 'Sign in' : authMode === 'sign-up' ? 'Create account' : authMode === 'reset' ? 'Send reset link' : 'Send sign-in link'}</button>
           </form>
+          </>}
+          </>
         )}
-        <div className="account-options">
+        {showEmailAuth && <div className="account-options">
           {authMode !== 'sign-in' && <button onClick={() => switchAuthMode('sign-in')}>Sign in</button>}
           {authMode !== 'sign-up' && <button onClick={() => switchAuthMode('sign-up')}>Create account</button>}
           {authMode !== 'reset' && <button onClick={() => switchAuthMode('reset')}>Forgot password?</button>}
           {authMode !== 'email-link' && <button onClick={() => switchAuthMode('email-link')}>Email link</button>}
-        </div>
+        </div>}
         {error && <p role="alert" className="account-error">{error}</p>}
       </section>
     </main>
@@ -277,6 +303,15 @@ export function WorkspaceGate({ children }: { children: React.ReactNode }) {
       {error && <div className="workspace-error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={15} /></button></div>}
     </WorkspaceContext.Provider>
   );
+}
+
+function GoogleMark() {
+  return <svg aria-hidden="true" viewBox="0 0 48 48" width="18" height="18">
+    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z" transform="translate(0 3)" />
+    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.72 7.18l7.62 5.91c4.45-4.11 7.14-10.16 7.14-17.56Z" />
+    <path fill="#FBBC05" d="M10.53 28.59a14.4 14.4 0 0 1 0-9.18l-7.98-6.19a23.9 23.9 0 0 0 0 21.56l7.98-6.19Z" transform="translate(0 3)" />
+    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.9-5.89l-7.62-5.91c-2.12 1.42-4.84 2.26-8.28 2.26-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48Z" transform="translate(0 -3)" />
+  </svg>;
 }
 
 export function WorkspaceMenu() {
