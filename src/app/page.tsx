@@ -7,9 +7,9 @@ import { NewCarouselModal } from '../components/NewCarouselModal';
 import dynamic from 'next/dynamic';
 import {
   Search, Trash2, LayoutGrid, Plus, Sparkles, Layers,
-  Type, Image as ImageIcon, Square, Layout, X, Play,
-  AlertCircle, CheckCircle2, Sliders, Upload, RefreshCw, ZoomIn, ZoomOut,
-  Copy, Circle, Minus, LayoutTemplate, Layers2
+  Type, Image as ImageIcon, Square, Layout, X,
+  AlertCircle, Sliders, Upload, RefreshCw, ZoomIn, ZoomOut,
+  Copy, Circle, Minus, LayoutTemplate, Layers2, RotateCcw, RotateCw, MoreHorizontal
 } from 'lucide-react';
 
 const KonvaCanvas = dynamic(
@@ -19,14 +19,27 @@ const KonvaCanvas = dynamic(
 import { InspectorPanel } from '../components/InspectorPanel';
 import { SaveAsTemplateModal } from '../components/SaveAsTemplateModal';
 import { ExportModal } from '../components/ExportModal';
+import { SlidePreview } from '../components/SlidePreview';
+import { AISettingsPanel } from '../components/AISettingsPanel';
+import { WorkspaceGate } from '../components/WorkspaceGate';
+import { BrandProfilesPanel } from '../components/BrandProfilesPanel';
+import { getAllTemplatesFromIDB, saveTemplateToIDB } from '../lib/idb';
+import type { CarouselTemplate } from '../types/schema';
 
-export default function AppMain() {
+export default function Page() {
+  return <WorkspaceGate><AppMain /></WorkspaceGate>;
+}
+
+function AppMain() {
   const currentView = useCarouselStore((state) => state.currentView);
   const setView = useCarouselStore((state) => state.setView);
   const documents = useCarouselStore((state) => state.documents);
+  const brandProfiles = useCarouselStore((state) => state.brandProfiles);
+  const previewBrandId = useCarouselStore((state) => state.previewBrandId);
   const activeDocumentId = useCarouselStore((state) => state.activeDocumentId);
   const activeSlideId = useCarouselStore((state) => state.activeSlideId);
   const loadDocumentsFromStorage = useCarouselStore((state) => state.loadDocumentsFromStorage);
+  const loadBrandProfilesFromStorage = useCarouselStore((state) => state.loadBrandProfilesFromStorage);
   const openDocument = useCarouselStore((state) => state.openDocument);
   const deleteDocument = useCarouselStore((state) => state.deleteDocument);
 
@@ -57,8 +70,7 @@ export default function AppMain() {
   const setEditorMode = useCarouselStore((state) => state.setEditorMode);
   const setActiveShapeType = useCarouselStore((state) => state.setActiveShapeType);
 
-  const settings = useCarouselStore((state) => state.settings);
-  const setPerformancePreset = useCarouselStore((state) => state.setPerformancePreset);
+  const loadAISettings = useCarouselStore((state) => state.loadAISettings);
 
   // Template System Store State & Actions
   const templates = useCarouselStore((state) => state.templates);
@@ -89,9 +101,14 @@ export default function AppMain() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState('updated');
+  const [templateFilter, setTemplateFilter] = useState('all');
 
   // Native File Picker Ref for Image Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const templateImportRef = useRef<HTMLInputElement>(null);
+  const [importingTemplates, setImportingTemplates] = useState(false);
+  const [templateImportMessage, setTemplateImportMessage] = useState('');
 
   // Shape Picker Popover State
   const [showShapePicker, setShowShapePicker] = useState(false);
@@ -108,38 +125,24 @@ export default function AppMain() {
   const [isSaveAsTemplateModalOpen, setIsSaveAsTemplateModalOpen] = useState(false);
   const [saveAsTemplateModalMode, setSaveAsTemplateModalMode] = useState<'full_carousel' | 'single_slide'>('full_carousel');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [generatingSlideId, setGeneratingSlideId] = useState<string | null>(null);
   const [mobileEditorTab, setMobileEditorTab] = useState<'canvas' | 'inspector'>('canvas');
+  const [showMobileSlideMenu, setShowMobileSlideMenu] = useState(false);
+  const undo = useCarouselStore((state) => state.undo);
+  const redo = useCarouselStore((state) => state.redo);
+  const canUndo = useCarouselStore((state) => state.historyIndex >= 0);
+  const canRedo = useCarouselStore((state) => state.historyIndex < state.history.length - 1);
 
   const [isRenameTemplateModalOpen, setIsRenameTemplateModalOpen] = useState(false);
   const [renameTemplateIdTarget, setRenameTemplateIdTarget] = useState<string | null>(null);
   const [renameTemplateNameInput, setRenameTemplateNameInput] = useState('');
 
   // Brand Kit Sub-tabs state
-  const [brandKitTab, setBrandKitTab] = useState<'templates' | 'guidelines'>('templates');
-  const [activeSkillTab, setActiveSkillTab] = useState<'global' | 'cover' | 'content' | 'cta'>('global');
-  const [enableSkillContext, setEnableSkillContext] = useState(true);
-  const [skillRules, setSkillRules] = useState({
-    global: 'Keep compositions minimal and cinematic. Maintain high contrast typography and clear brand color hierarchy.',
-    cover: 'Dopamine hook headline under 10 words. Eye-catching subtitle and hero image layout.',
-    content: '1 primary takeaway per slide. High readability 28px+ body copy.',
-    cta: 'Strong bold conversion prompt. Clear arrow graphic or action trigger handle.'
-  });
-  const [simInput, setSimInput] = useState('Generate a slide prompt for 5 AI productivity tools');
-  const [simResult, setSimResult] = useState<string | null>(null);
+  const [brandKitTab, setBrandKitTab] = useState<'templates' | 'brands'>('templates');
 
   // Template View state
   const [templateZoom, setTemplateZoom] = useState(100);
-
-  // Settings view local state
-  const [selectedPreset, setSelectedPreset] = useState<'high_quality' | 'balanced' | 'high_speed'>('balanced');
-  const [apiKeys, setApiKeys] = useState({
-    openai: 'sk-proj-••••••••••••••••',
-    claude: 'sk-ant-••••••••••••••••',
-    gemini: '',
-    deepseek: 'sk-ds-••••••••••••••••',
-    grok: '',
-    seeddance: 'sd-••••••••••••••••'
-  });
 
   // Reorder Drag State for Slide Deck
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
@@ -147,16 +150,59 @@ export default function AppMain() {
   useEffect(() => {
     loadDocumentsFromStorage();
     loadTemplatesFromStorage();
-  }, [loadDocumentsFromStorage, loadTemplatesFromStorage]);
+    loadBrandProfilesFromStorage();
+    loadAISettings();
+  }, [loadDocumentsFromStorage, loadTemplatesFromStorage, loadBrandProfilesFromStorage, loadAISettings]);
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId);
+  const previewBrand = brandProfiles.find(profile => profile.id === previewBrandId) || null;
   const activeSlide = activeDoc?.slides.find((s) => s.id === activeSlideId) || activeDoc?.slides[0];
 
+  const importTemplateFile = async (file: File) => {
+    setTemplateImportMessage('');
+    if (!file.name.toLowerCase().endsWith('.json') || file.size > 20 * 1024 * 1024) {
+      setTemplateImportMessage('Choose a template JSON file under 20 MB.');
+      return;
+    }
+    setImportingTemplates(true);
+    let imported = 0;
+    let firstImportedId: string | null = null;
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      if (!parsed || typeof parsed !== 'object' || !('format' in parsed) || parsed.format !== 'dara-studio-templates-v1' ||
+          !('templates' in parsed) || !Array.isArray(parsed.templates) || parsed.templates.length > 100) {
+        throw new Error('This is not a DARA Studio template export.');
+      }
+      const incoming = parsed.templates as CarouselTemplate[];
+      if (incoming.some(template => !template || typeof template.id !== 'string' || !template.id.trim() ||
+          typeof template.name !== 'string' || !template.name.trim() || !Array.isArray(template.layouts) ||
+          template.layouts.length === 0 || template.layouts.some(layout => !layout || typeof layout.id !== 'string' || !Array.isArray(layout.layers)))) {
+        throw new Error('The template file contains an incomplete template.');
+      }
+      const existing = new Set((await getAllTemplatesFromIDB()).map(template => template.id));
+      for (const template of incoming) {
+        if (existing.has(template.id)) continue;
+        await saveTemplateToIDB(template);
+        existing.add(template.id);
+        firstImportedId ||= template.id;
+        imported++;
+      }
+      await loadTemplatesFromStorage();
+      if (firstImportedId) setActiveTemplateId(firstImportedId);
+      setTemplateImportMessage(imported ? `Restored ${imported} template${imported === 1 ? '' : 's'}. Existing templates were kept.` : 'These templates are already in this workspace.');
+    } catch (error) {
+      if (imported > 0) await loadTemplatesFromStorage();
+      setTemplateImportMessage(error instanceof Error ? error.message : 'Could not import templates.');
+    } finally {
+      setImportingTemplates(false);
+    }
+  };
+
   const filteredDocs = documents.filter(
-    (doc) =>
+    (doc) => (templateFilter === 'all' || (doc.templateRef.templateId === 'bbc' ? 'tpl-bbc' : doc.templateRef.templateId) === templateFilter) && (
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.topic.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+      doc.topic.toLowerCase().includes(searchQuery.toLowerCase()))
+  ).sort((a, b) => sortOrder === 'title' ? a.title.localeCompare(b.title) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 
   // Keyboard shortcut listener for Z-order, grouping, duplication, deletion & slide reordering
   useEffect(() => {
@@ -287,14 +333,8 @@ export default function AppMain() {
     }
   };
 
-  const handleRunSimulation = () => {
-    setSimResult(
-      `[COMPILED SYSTEM PROMPT]\nSkill Context: ${skillRules[activeSkillTab]}\n\nUser Input: "${simInput}"\n\nResulting Prompt:\n"High contrast dark slide with punchy headline, neon blue accents, and 60fps layout hierarchy."\n\nMetrics: 1,248 tokens | Latency: ~320ms | Provider: Claude 3.5 Sonnet`
-    );
-  };
-
   return (
-    <div className="h-screen max-h-screen w-screen overflow-hidden bg-workspace text-white flex flex-col select-none">
+    <div className="studio-app h-screen max-h-screen w-screen overflow-hidden bg-workspace text-white flex flex-col select-none">
 
       <NavigationHeader
         onOpenCreationModal={() => setIsModalOpen(true)}
@@ -316,80 +356,50 @@ export default function AppMain() {
 
       {/* DASHBOARD VIEW */}
       {currentView === 'dashboard' && (
-        <main className="pt-[74px] px-6 max-w-[1280px] mx-auto pb-12 flex-1 overflow-y-auto w-full">
-          <div className="flex items-center justify-between mb-6">
+        <main className="library-page">
+          <div className="library-heading">
             <div>
-              <h1 className="text-2xl font-bold text-white mb-1">Projects</h1>
-              <p className="text-xs text-text-secondary">
-                Manage, edit, and export your high-converting social media carousels.
-              </p>
+              <h1>Carousels</h1>
+              <p>{documents.length} {documents.length === 1 ? 'carousel' : 'carousels'} in your workspace</p>
             </div>
-
-            <div className="relative w-[300px]">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
-              <input
-                type="text"
-                className="w-full bg-surface border border-border-default rounded-md pl-9 pr-3 py-2 text-xs text-white placeholder-text-tertiary focus:border-border-focus outline-none"
-                placeholder="Search projects..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+            <div className="library-controls">
+              <div className="library-search">
+                <Search />
+                <input aria-label="Search carousels" placeholder="Search carousels" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+              </div>
+              <select className="library-sort" aria-label="Filter by template" value={templateFilter} onChange={event => setTemplateFilter(event.target.value)}>
+                <option value="all">All templates</option>
+                {templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
+              <select className="library-sort" aria-label="Sort carousels" value={sortOrder} onChange={event => setSortOrder(event.target.value)}>
+                <option value="updated">Last edited</option>
+                <option value="title">Name</option>
+              </select>
             </div>
           </div>
 
           {filteredDocs.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            <div className="project-grid">
               {filteredDocs.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="bg-surface border border-border-default rounded-lg overflow-hidden cursor-pointer hover:-translate-y-1 hover:border-text-tertiary hover:shadow-2xl transition-all group flex flex-col"
-                  onClick={() => openDocument(doc.id)}
-                >
-                  <div
-                    className="aspect-[4/5] relative flex items-center justify-center p-6 text-center"
-                    style={{ backgroundColor: doc.slides[0]?.backgroundColor || '#111111' }}
-                  >
-                    <span className="text-sm font-extrabold text-white line-clamp-3">
-                      {(doc.slides[0]?.layers[0] as any)?.content || doc.title}
-                    </span>
-
-                    <button
-                      className="absolute top-2 right-2 p-1.5 rounded bg-red-600/80 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteDocument(doc.id);
-                      }}
-                      title="Delete Project"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="p-3 border-t border-border-subtle">
-                    <h3 className="text-xs font-semibold text-white truncate mb-1">{doc.title}</h3>
-                    <div className="flex justify-between items-center text-[10px] text-text-secondary">
-                      <span>{doc.slides.length} Slides</span>
-                      <span>Just now</span>
+                <article key={doc.id} className="project-item">
+                  <button className="project-open" onClick={() => openDocument(doc.id)} aria-label={`Open ${doc.title}`}>
+                    <div className="project-stage">
+                      {doc.slides[0] && <SlidePreview slide={doc.slides[0]} />}
                     </div>
-                  </div>
-                </div>
+                    <div className="project-info">
+                      <h3>{doc.title}</h3>
+                      <p><span>{doc.slides.length} {doc.slides.length === 1 ? 'slide' : 'slides'}</span><span className="subtitle-dot" /><span>{templates.find(item => item.id === (doc.templateRef.templateId === 'bbc' ? 'tpl-bbc' : doc.templateRef.templateId))?.name || 'Unknown template'}</span><span className="subtitle-dot" /><time dateTime={doc.updatedAt}>{new Date(doc.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}</time></p>
+                    </div>
+                  </button>
+                  <button className="project-delete" onClick={() => deleteDocument(doc.id)} title="Delete carousel" aria-label={`Delete ${doc.title}`}><Trash2 size={13} /></button>
+                </article>
               ))}
             </div>
           ) : (
-            <div className="text-center py-16 max-w-[480px] mx-auto">
-              <div className="w-14 h-14 rounded-full bg-surface-elevated border border-border-default flex items-center justify-center mx-auto mb-4 text-text-secondary">
-                <LayoutGrid className="w-6 h-6" />
-              </div>
-              <h3 className="text-base font-bold text-white mb-1.5">No Carousels Created Yet</h3>
-              <p className="text-xs text-text-secondary mb-4">
-                Create your first social media carousel using AI prompt generation or custom templates.
-              </p>
-              <button
-                className="px-4 py-2 text-xs font-semibold rounded bg-accent-blue text-white hover:bg-blue-600"
-                onClick={() => setIsModalOpen(true)}
-              >
-                Create Carousel
-              </button>
+            <div className="library-empty">
+              <LayoutGrid />
+              <h2>{searchQuery || templateFilter !== 'all' ? 'No matching carousels' : 'Your next story starts here.'}</h2>
+              {searchQuery || templateFilter !== 'all' ? <button className="secondary-button" onClick={() => { setSearchQuery(''); setTemplateFilter('all'); }}>Clear filters</button> : <button className="primary-button" onClick={() => setIsModalOpen(true)}><Plus size={16} />New carousel</button>}
             </div>
           )}
         </main>
@@ -397,11 +407,18 @@ export default function AppMain() {
 
       {/* EDITOR VIEW */}
       {currentView === 'editor' && (
-        <main className="pt-[50px] flex-1 min-h-0 flex flex-col overflow-hidden w-full relative">
+        <main className="editor-main flex-1 min-h-0 flex flex-col overflow-hidden w-full relative">
+          {imageError && (
+            <div role="alert" className="absolute top-[58px] left-1/2 -translate-x-1/2 z-40 max-w-[min(90vw,560px)] flex items-center gap-3 bg-red-950 border border-red-700 text-red-100 text-xs px-3 py-2 rounded shadow-lg">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{imageError}</span>
+              <button onClick={() => setImageError(null)} aria-label="Dismiss error" className="ml-auto p-1 hover:bg-red-900 rounded"><X className="w-3.5 h-3.5" /></button>
+            </div>
+          )}
           {/* Upper Editor Workspace */}
-          <div className="flex-1 min-h-0 flex overflow-hidden relative">
+          <div className={`mobile-editor-workspace flex-1 min-h-0 flex overflow-hidden relative ${mobileEditorTab === 'inspector' ? 'is-inspector-view' : ''}`}>
             {/* Quick Tool Rail (Left Edge) */}
-            <div className="w-[52px] sm:w-[60px] shrink-0 bg-surface border-r border-border-default flex flex-col items-center py-3 sm:py-4 gap-2.5 sm:gap-3.5 z-30 relative select-none">
+            <div className="tool-rail shrink-0 bg-surface border-r border-border-default flex flex-col items-center z-30 relative select-none">
               <button
                 className="p-2 sm:p-2.5 rounded-lg bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center gap-1 transition-colors"
                 onClick={() => addTextLayer()}
@@ -505,40 +522,62 @@ export default function AppMain() {
             </div>
 
             {/* Right 4-Tab Inspector Panel */}
-            <div className={`w-full lg:w-[320px] xl:w-[340px] shrink-0 flex-col overflow-hidden h-full ${mobileEditorTab === 'canvas' ? 'hidden lg:flex' : 'flex'}`}>
+            <div className={`flex-1 min-w-0 lg:flex-none lg:w-[320px] xl:w-[340px] flex-col overflow-hidden h-full ${mobileEditorTab === 'canvas' ? 'hidden lg:flex' : 'flex'}`}>
               <InspectorPanel />
             </div>
 
             {/* Mobile View Toggle Bar (visible only on <1024px screens) */}
-            <div className="lg:hidden fixed bottom-[105px] left-1/2 -translate-x-1/2 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-full p-1 shadow-2xl flex items-center gap-1">
+            <div className="mobile-editor-toggle lg:hidden z-40 flex items-center justify-center gap-1" role="toolbar" aria-label="Mobile editor controls">
+              <button className="mobile-dock-icon" onClick={undo} disabled={!canUndo} title="Undo" aria-label="Undo"><RotateCcw size={18} /></button>
               <button
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                className={`mobile-dock-tab text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
                   mobileEditorTab === 'canvas'
-                    ? 'bg-accent-blue text-white shadow'
+                    ? 'is-active'
                     : 'text-text-secondary hover:text-white'
                 }`}
                 onClick={() => setMobileEditorTab('canvas')}
+                aria-pressed={mobileEditorTab === 'canvas'}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                Canvas Stage
+                Canvas
               </button>
               <button
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                className={`mobile-dock-tab text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
                   mobileEditorTab === 'inspector'
-                    ? 'bg-accent-blue text-white shadow'
+                    ? 'is-active'
                     : 'text-text-secondary hover:text-white'
                 }`}
                 onClick={() => setMobileEditorTab('inspector')}
+                aria-pressed={mobileEditorTab === 'inspector'}
               >
                 <Sliders className="w-3.5 h-3.5" />
-                Design Panel
+                Inspector
               </button>
+              <button className="mobile-dock-icon" onClick={redo} disabled={!canRedo} title="Redo" aria-label="Redo"><RotateCw size={18} /></button>
+              <button className="mobile-dock-icon" onClick={() => setShowMobileSlideMenu(value => !value)} disabled={isTemplateEditorMode} aria-label="Slide actions" aria-expanded={showMobileSlideMenu} title="Slide actions"><MoreHorizontal size={20} /></button>
             </div>
+            {showMobileSlideMenu && <>
+              <button className="mobile-slide-menu-dismiss lg:hidden" aria-label="Close slide actions" onClick={() => setShowMobileSlideMenu(false)} />
+              <div className="mobile-slide-menu lg:hidden" role="menu" aria-label="Slide actions">
+                <button role="menuitem" disabled={!activeSlide || generatingSlideId === activeSlide.id} onClick={async () => {
+                  if (!activeSlide) return;
+                  setShowMobileSlideMenu(false);
+                  setImageError(null);
+                  setGeneratingSlideId(activeSlide.id);
+                  try { await generateSlideImage(activeSlide.id); }
+                  catch (err) { setImageError(err instanceof Error ? err.message : 'Image generation failed.'); }
+                  finally { setGeneratingSlideId(null); }
+                }}><Sparkles size={16} /> Generate visual</button>
+                <button role="menuitem" disabled={!activeSlide} onClick={() => { if (activeSlide) duplicateSlide(activeSlide.id); setShowMobileSlideMenu(false); }}><Copy size={16} /> Duplicate slide</button>
+                <button role="menuitem" onClick={() => { setShowLayoutPicker(true); setShowMobileSlideMenu(false); }}><Plus size={16} /> Add slide</button>
+                {activeSlide && activeDoc && activeDoc.slides.length > 1 && <button role="menuitem" className="is-destructive" onClick={() => { deleteSlide(activeSlide.id); setShowMobileSlideMenu(false); }}><Trash2 size={16} /> Delete slide</button>}
+              </div>
+            </>}
           </div>
 
           {/* Bottom Horizontal Strip: Master Layout Navigator (in Template Mode) vs Carousel Slide Deck (in Standard Mode) */}
           {isTemplateEditorMode ? (
-            <div className="h-[92px] sm:h-[96px] bg-surface border-t border-border-default flex items-center px-3 sm:px-4 gap-2.5 sm:gap-3 overflow-x-auto z-20 shrink-0 select-none">
+            <div className="filmstrip bg-surface flex items-center overflow-x-auto z-20 shrink-0 select-none">
               {getActiveTemplate()?.layouts.map((layout) => {
                 const isActive = layout.id === activeLayoutId;
 
@@ -590,21 +629,9 @@ export default function AppMain() {
               </button>
             </div>
           ) : (
-            <div className="h-[92px] sm:h-[96px] bg-surface border-t border-border-default flex items-center px-3 sm:px-4 gap-2.5 sm:gap-3 overflow-x-auto z-20 shrink-0 select-none">
+            <div className="filmstrip bg-surface flex items-center overflow-x-auto z-20 shrink-0 select-none">
               {activeDoc?.slides.map((slide, idx) => {
                 const isActive = slide.id === activeSlideId;
-                const isLogo = (l: any) =>
-                  l.type === 'logo' ||
-                  l.semanticRole === 'logo' ||
-                  l.semanticRole === 'brand_logo' ||
-                  l.semanticRole === 'author_avatar' ||
-                  (l.name && l.name.toLowerCase().includes('logo')) ||
-                  (l.id && l.id.toLowerCase().includes('logo'));
-
-                const slideImgLayer = slide.layers.find(
-                  (l) => ((l.type === 'image' && (l as any).url) || (l.type === 'image-slot' && ((l as any).assignedMediaUrl || (l as any).url))) && !isLogo(l)
-                );
-                const slideImgUrl = (slideImgLayer as any)?.assignedMediaUrl || (slideImgLayer as any)?.url || (slideImgLayer as any)?.localPreviewUrl;
 
                 return (
                   <div
@@ -622,46 +649,41 @@ export default function AppMain() {
                       }
                       setDraggedSlideId(null);
                     }}
-                    className={`w-[64px] h-[76px] sm:w-[70px] sm:h-[80px] rounded-lg border cursor-pointer relative overflow-hidden transition-all shrink-0 group flex flex-col ${
-                      isActive
-                        ? 'border-accent-blue ring-2 ring-blue-500/40 shadow-lg'
-                        : 'border-border-default hover:border-text-secondary opacity-80 hover:opacity-100'
-                    }`}
-                    style={{ backgroundColor: slide.backgroundColor || '#111' }}
+                    className={`filmstrip-slide ${isActive ? 'is-active' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Slide ${idx + 1}`}
+                    aria-pressed={isActive}
+                    onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setActiveSlideId(slide.id); } }}
                     onClick={() => setActiveSlideId(slide.id)}
                   >
-                    {/* Background Image Thumbnail Preview */}
-                    {slideImgUrl && (
-                      <img
-                        src={slideImgUrl}
-                        alt=""
-                        className="absolute inset-0 w-full h-full object-cover opacity-50 pointer-events-none"
-                      />
-                    )}
-
-                    <span className="absolute top-1 left-1 bg-black/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded z-10 backdrop-blur-xs">
-                      #{idx + 1}
+                    <SlidePreview slide={slide} brandProfile={previewBrand} />
+                    <span className="slide-number">
+                      {idx + 1}
                     </span>
 
                     {/* Actions Overlay (Generate Image, Duplicate & Delete) */}
-                    <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                    <div className="slide-actions">
                       <button
-                        className="w-4 h-4 rounded-full bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center shadow"
+                        disabled={generatingSlideId === slide.id}
                         onClick={async (e) => {
                           e.stopPropagation();
                           setActiveSlideId(slide.id);
+                          setImageError(null);
+                          setGeneratingSlideId(slide.id);
                           try {
                             await generateSlideImage(slide.id);
-                          } catch (err) {
-                            console.error(err);
+                          } catch (err: any) {
+                            setImageError(err.message || 'Image generation failed. Your slide was not changed.');
+                          } finally {
+                            setGeneratingSlideId(null);
                           }
                         }}
                         title="Generate AI Visual for Slide"
                       >
-                        <Sparkles className="w-2.5 h-2.5 text-yellow-300" />
+                        <Sparkles />
                       </button>
                       <button
-                        className="w-4 h-4 rounded-full bg-surface-elevated text-white flex items-center justify-center hover:bg-surface-hover"
                         onClick={(e) => {
                           e.stopPropagation();
                           duplicateSlide(slide.id);
@@ -672,7 +694,6 @@ export default function AppMain() {
                       </button>
                       {activeDoc.slides.length > 1 && (
                         <button
-                          className="w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700"
                           onClick={(e) => {
                             e.stopPropagation();
                             deleteSlide(slide.id);
@@ -684,16 +705,13 @@ export default function AppMain() {
                       )}
                     </div>
 
-                    <div className="p-1 text-[7px] text-white/90 overflow-hidden h-full flex items-center justify-center text-center font-medium leading-tight relative z-10 drop-shadow-sm">
-                      {(slide.layers.find(l => l.type === 'text') as any)?.content || `Slide ${idx + 1}`}
-                    </div>
                   </div>
                 );
               })}
 
               {/* Active Slide Layout Switcher Dropdown */}
               {activeSlide && (
-                <div className="hidden sm:flex items-center gap-1.5 bg-surface-elevated border border-border-default rounded-lg px-2.5 py-1.5 ml-auto shrink-0 shadow-md">
+                <div className="layout-switcher hidden sm:flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 ml-auto shrink-0">
                   <LayoutTemplate className="w-3.5 h-3.5 text-accent-blue" />
                   <span className="text-[9px] font-semibold text-text-secondary uppercase">Layout:</span>
                   <select
@@ -717,7 +735,7 @@ export default function AppMain() {
 
               {/* + Add Slide Button */}
               <button
-                className="w-[64px] h-[76px] sm:w-[70px] sm:h-[80px] rounded-lg border-2 border-dashed border-border-default hover:border-accent-blue bg-surface-elevated hover:bg-surface-hover text-text-secondary hover:text-white flex flex-col items-center justify-center gap-1 shrink-0 transition-all ml-1 sm:ml-0"
+                className="add-slide-button border hover:border-accent-blue text-text-secondary hover:text-white flex flex-col items-center justify-center gap-2 shrink-0 transition-all"
                 onClick={() => setShowLayoutPicker(true)}
               >
                 <Plus className="w-4 h-4 text-accent-blue" />
@@ -770,17 +788,17 @@ export default function AppMain() {
       )}
 
       {/* BRAND KIT & TEMPLATES VIEW */}
-      {(currentView === 'templates' || currentView === 'creative-director') && (
-        <main className="pt-[65px] px-6 max-w-[1280px] mx-auto pb-12 flex-1 overflow-y-auto w-full">
-          <div className="flex items-center justify-between border-b border-border-default pb-4 mb-6">
+      {currentView === 'templates' && (
+        <main className="brand-kit-page pt-[104px] px-6 max-w-[1280px] mx-auto pb-12 flex-1 overflow-y-auto w-full">
+          <div className="brand-kit-heading flex items-center justify-between border-b border-border-default pb-4 mb-6">
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">Brand Kit & Design System</h1>
               <p className="text-xs text-text-secondary">
-                Configure master slide templates, brand guidelines, and AI Creative Director rule engines.
+                Configure reusable slide templates and brand profiles.
               </p>
             </div>
 
-            <div className="flex bg-surface-elevated p-1 rounded-lg border border-border-default">
+            <div className="brand-kit-tabs flex bg-surface-elevated p-1 rounded-lg border border-border-default">
               <button
                 className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
                   brandKitTab === 'templates'
@@ -795,18 +813,9 @@ export default function AppMain() {
                 Design Templates
               </button>
               <button
-                className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  brandKitTab === 'guidelines'
-                    ? 'bg-accent-blue text-white shadow'
-                    : 'text-text-secondary hover:text-white'
-                }`}
-                onClick={() => {
-                  setBrandKitTab('guidelines');
-                  setView('creative-director');
-                }}
-              >
-                AI Creative Director Guidelines
-              </button>
+                className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${brandKitTab === 'brands' ? 'bg-accent-blue text-white shadow' : 'text-text-secondary hover:text-white'}`}
+                onClick={() => { setBrandKitTab('brands'); setView('templates'); }}
+              >Brand Profiles</button>
             </div>
           </div>
 
@@ -814,7 +823,7 @@ export default function AppMain() {
           {brandKitTab === 'templates' && (
             <div className="space-y-6">
               <div className="bg-surface border border-border-default rounded-lg p-4 flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
+                <div className="template-primary-actions flex items-center gap-3">
                   <label className="text-xs font-semibold text-text-secondary">Active Template:</label>
                   <select
                     className="bg-surface-elevated border border-border-default rounded px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-border-focus"
@@ -848,6 +857,15 @@ export default function AppMain() {
                     }}
                   >
                     Save Carousel as Template
+                  </button>
+
+                  <input ref={templateImportRef} type="file" accept=".json,application/json" className="sr-only" aria-label="Import templates JSON" onChange={event => {
+                    const file = event.target.files?.[0];
+                    if (file) void importTemplateFile(file);
+                    event.target.value = '';
+                  }} />
+                  <button className="px-3 py-1.5 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-xs font-medium text-white flex items-center gap-1.5" disabled={importingTemplates} onClick={() => templateImportRef.current?.click()}>
+                    <Upload className="w-3.5 h-3.5" /> Import templates
                   </button>
 
                   <button
@@ -929,6 +947,8 @@ export default function AppMain() {
                     Apply to Carousel
                   </button>
                 </div>
+
+                {templateImportMessage && <p role="status" className="w-full text-xs text-text-secondary">{templateImportMessage}</p>}
               </div>
 
               {/* Master Layout Cards Grid */}
@@ -1002,306 +1022,11 @@ export default function AppMain() {
             </div>
           )}
 
-          {/* SUB-TAB 2: GUIDELINES */}
-          {brandKitTab === 'guidelines' && (
-            <div className="space-y-6">
-              <div className="bg-surface border border-border-default rounded-lg p-5 flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="skillContext"
-                    className="w-4 h-4 rounded accent-accent-blue cursor-pointer"
-                    checked={enableSkillContext}
-                    onChange={(e) => setEnableSkillContext(e.target.checked)}
-                  />
-                  <label htmlFor="skillContext" className="text-xs font-semibold text-white cursor-pointer">
-                    Enable skill context in prompt engineering pipeline
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-2 border border-dashed border-border-default rounded-lg px-4 py-2 bg-surface-elevated hover:bg-surface-hover cursor-pointer transition-colors">
-                  <Upload className="w-4 h-4 text-accent-blue" />
-                  <span className="text-xs font-medium text-text-secondary">
-                    Upload Brand Guidelines Document (.pdf, .txt, .md)
-                  </span>
-                </div>
-              </div>
-
-              <div className="bg-surface border border-border-default rounded-lg overflow-hidden">
-                <div className="flex border-b border-border-default bg-surface-elevated">
-                  {(['global', 'cover', 'content', 'cta'] as const).map((tabKey) => (
-                    <button
-                      key={tabKey}
-                      className={`px-5 py-3 text-xs font-semibold capitalize border-b-2 transition-colors ${
-                        activeSkillTab === tabKey
-                          ? 'border-accent-blue text-white bg-surface'
-                          : 'border-transparent text-text-secondary hover:text-white'
-                      }`}
-                      onClick={() => setActiveSkillTab(tabKey)}
-                    >
-                      {tabKey === 'global' ? 'Global Rules' : `${tabKey} Slide`}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="p-5 space-y-3">
-                  <label className="block text-xs font-semibold text-text-secondary uppercase">
-                    {activeSkillTab.toUpperCase()} INSTRUCTIONS & CREATIVE DIRECTION
-                  </label>
-                  <textarea
-                    className="w-full bg-surface-elevated border border-border-default rounded p-3 text-xs text-white font-mono leading-relaxed outline-none focus:border-border-focus resize-none"
-                    rows={6}
-                    value={skillRules[activeSkillTab]}
-                    onChange={(e) => setSkillRules({ ...skillRules, [activeSkillTab]: e.target.value })}
-                  />
-                  <button className="px-4 py-2 bg-accent-blue text-white text-xs font-semibold rounded hover:bg-blue-600 transition-colors">
-                    Save Skill Directives
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-surface border border-border-default rounded-lg p-5 space-y-4">
-                <div className="flex justify-between items-center border-b border-border-subtle pb-3">
-                  <span className="text-xs font-bold text-white uppercase tracking-wider">
-                    DRY-RUN SIMULATION CONSOLE
-                  </span>
-                  <span className="text-[10px] text-accent-blue font-mono bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
-                    Live Compiler Active
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-[11px] font-semibold text-text-secondary uppercase">
-                    Test Input Prompt
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      className="flex-1 bg-surface-elevated border border-border-default rounded px-3 py-2 text-xs text-white outline-none focus:border-border-focus"
-                      value={simInput}
-                      onChange={(e) => setSimInput(e.target.value)}
-                    />
-                    <button
-                      className="px-4 py-2 bg-gradient-to-r from-purple-600 to-accent-blue text-white text-xs font-semibold rounded hover:opacity-90 flex items-center gap-1.5"
-                      onClick={handleRunSimulation}
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      Run Simulation
-                    </button>
-                  </div>
-                </div>
-
-                {simResult && (
-                  <div className="bg-[#0b0c10] border border-border-default rounded p-4 font-mono text-xs text-green-400 whitespace-pre-wrap leading-relaxed">
-                    {simResult}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {brandKitTab === 'brands' && <BrandProfilesPanel />}
         </main>
       )}
 
-      {/* AI SETTINGS VIEW */}
-      {currentView === 'settings' && (
-        <main className="pt-[65px] px-6 max-w-[1280px] mx-auto pb-24 flex-1 overflow-y-auto w-full space-y-8">
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-1">AI Configuration Engine</h1>
-            <p className="text-xs text-text-secondary">
-              Configure multi-model performance presets, API provider keys, and pipeline task routing rules.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text-secondary">
-              Performance Profiles
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div
-                className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                  selectedPreset === 'high_quality'
-                    ? 'bg-blue-600/10 border-accent-blue ring-2 ring-blue-500/30'
-                    : 'bg-surface border-border-default hover:border-text-secondary'
-                }`}
-                onClick={() => setSelectedPreset('high_quality')}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-white">High Quality</span>
-                  {selectedPreset === 'high_quality' && (
-                    <CheckCircle2 className="w-4 h-4 text-accent-blue" />
-                  )}
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  Maximum reasoning depth and highest visual accuracy. Uses Claude 3.5 Sonnet & GPT-4o.
-                </p>
-              </div>
-
-              <div
-                className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                  selectedPreset === 'balanced'
-                    ? 'bg-blue-600/10 border-accent-blue ring-2 ring-blue-500/30'
-                    : 'bg-surface border-border-default hover:border-text-secondary'
-                }`}
-                onClick={() => setSelectedPreset('balanced')}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-white">Balanced (Recommended)</span>
-                  {selectedPreset === 'balanced' && (
-                    <CheckCircle2 className="w-4 h-4 text-accent-blue" />
-                  )}
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  Optimal blend of speed, cost & creative depth across GPT-4o, Claude, and Gemini.
-                </p>
-              </div>
-
-              <div
-                className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                  selectedPreset === 'high_speed'
-                    ? 'bg-blue-600/10 border-accent-blue ring-2 ring-blue-500/30'
-                    : 'bg-surface border-border-default hover:border-text-secondary'
-                }`}
-                onClick={() => setSelectedPreset('high_speed')}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-white">High Speed</span>
-                  {selectedPreset === 'high_speed' && (
-                    <CheckCircle2 className="w-4 h-4 text-accent-blue" />
-                  )}
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  Ultra-fast generation, minimal latency. Uses DeepSeek V3 and fast image endpoints.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text-secondary">
-              Provider Connections (6 Models Supported)
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[
-                { name: 'OpenAI', model: 'GPT-4o', keyField: 'openai', status: 'connected' },
-                { name: 'Claude', model: 'Claude 3.5 Sonnet', keyField: 'claude', status: 'connected' },
-                { name: 'Gemini', model: 'Gemini 1.5 Pro', keyField: 'gemini', status: 'unconfigured' },
-                { name: 'DeepSeek', model: 'DeepSeek V3/R1', keyField: 'deepseek', status: 'connected' },
-                { name: 'grok', model: 'Grok 2', keyField: 'grok', status: 'unconfigured' },
-                { name: 'seed dance', model: 'Seed-Dance 1.0', keyField: 'seeddance', status: 'connected' }
-              ].map((prov) => (
-                <div key={prov.name} className="bg-surface border border-border-default rounded-xl p-4 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <span className="text-xs font-bold text-white block capitalize">{prov.name}</span>
-                      <span className="text-[10px] text-text-tertiary">{prov.model}</span>
-                    </div>
-                    {prov.status === 'connected' ? (
-                      <span className="text-[10px] bg-green-500/15 text-accent-green px-2 py-0.5 rounded font-semibold border border-green-500/20">
-                        Connected ✓
-                      </span>
-                    ) : (
-                      <span className="text-[10px] bg-amber-500/15 text-amber-400 px-2 py-0.5 rounded font-semibold border border-amber-500/20">
-                        Unconfigured
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    type="password"
-                    className="w-full bg-surface-elevated border border-border-default rounded px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-border-focus"
-                    placeholder="Enter API Key..."
-                    value={(apiKeys as any)[prov.keyField]}
-                    onChange={(e) => setApiKeys({ ...apiKeys, [prov.keyField]: e.target.value })}
-                  />
-                  <button className="w-full py-1.5 bg-surface-elevated hover:bg-surface-hover border border-border-default rounded text-[11px] font-medium text-text-secondary hover:text-white transition-colors">
-                    Test Connection
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-text-secondary">
-              Task Routing Logic
-            </h2>
-            <div className="bg-surface border border-border-default rounded-xl overflow-hidden">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-surface-elevated border-b border-border-default text-text-secondary font-semibold uppercase text-[10px]">
-                  <tr>
-                    <th className="p-3">Stage / Task</th>
-                    <th className="p-3">Primary Engine</th>
-                    <th className="p-3">Fallback Engine</th>
-                    <th className="p-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  <tr>
-                    <td className="p-3 font-medium text-white">Outline & Script Generation</td>
-                    <td className="p-3 font-mono text-text-secondary">OpenAI (GPT-4o)</td>
-                    <td className="p-3 font-mono text-text-tertiary">Claude 3.5 Sonnet</td>
-                    <td className="p-3">
-                      <span className="text-[10px] text-accent-green bg-green-500/10 px-2 py-0.5 rounded font-semibold">OK</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-medium text-white">Visual Prompt Engineering</td>
-                    <td className="p-3 font-mono text-text-secondary">Claude 3.5 Sonnet</td>
-                    <td className="p-3 font-mono text-text-tertiary">Gemini 1.5 Pro</td>
-                    <td className="p-3">
-                      <span className="text-[10px] text-red-400 bg-red-500/15 px-2 py-0.5 rounded font-semibold flex items-center gap-1 w-fit border border-red-500/30">
-                        <AlertCircle className="w-3 h-3 text-red-400" />
-                        Fallback Missing Key (!)
-                      </span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-medium text-white">Image Generation</td>
-                    <td className="p-3 font-mono text-text-secondary">Seed-Dance 1.0</td>
-                    <td className="p-3 font-mono text-text-tertiary">OpenAI (DALL-E 3)</td>
-                    <td className="p-3">
-                      <span className="text-[10px] text-accent-green bg-green-500/10 px-2 py-0.5 rounded font-semibold">OK</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 font-medium text-white">Style & Layout Consistency Check</td>
-                    <td className="p-3 font-mono text-text-secondary">Gemini 1.5 Pro</td>
-                    <td className="p-3 font-mono text-text-tertiary">DeepSeek V3</td>
-                    <td className="p-3">
-                      <span className="text-[10px] text-red-400 bg-red-500/15 px-2 py-0.5 rounded font-semibold flex items-center gap-1 w-fit border border-red-500/30">
-                        <AlertCircle className="w-3 h-3 text-red-400" />
-                        Primary Key Unconfigured (!)
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="fixed bottom-0 left-0 right-0 h-[60px] bg-surface border-t border-border-default px-6 flex items-center justify-between z-50 shadow-2xl">
-            <span className="text-xs text-text-secondary">
-              Changes will be applied dynamically to the reactive routing pipeline.
-            </span>
-            <div className="flex items-center gap-3">
-              <button
-                className="px-4 py-2 border border-border-default rounded text-xs font-semibold text-text-secondary hover:text-white hover:bg-surface-hover transition-colors"
-                onClick={() => setView('dashboard')}
-              >
-                Discard Changes
-              </button>
-              <button
-                className="px-5 py-2 bg-white text-black hover:bg-neutral-200 rounded text-xs font-bold shadow transition-colors"
-                onClick={() => {
-                  setPerformancePreset(selectedPreset);
-                  setView('dashboard');
-                }}
-              >
-                Apply Configuration
-              </button>
-            </div>
-          </div>
-        </main>
-      )}
+      {currentView === 'settings' && <AISettingsPanel />}
 
       <NewCarouselModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
 

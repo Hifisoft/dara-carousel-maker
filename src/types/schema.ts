@@ -76,8 +76,19 @@ export interface CarouselDocument {
   };
   slides: SlideSceneNode[];
   globalCreativeDirection: CreativeDirectionConfig;
+  sourceUrl?: string;
+  generatedImages?: GeneratedImageConcept[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface GeneratedImageConcept {
+  id: string;
+  slideId: string;
+  imageUrl: string;
+  prompt: string;
+  model: string;
+  createdAt: string;
 }
 
 export interface SlideSceneNode {
@@ -204,6 +215,18 @@ export interface ImageLayerNode extends BaseLayerNode {
     offsetY: number;
   };
   borderRadius: number;
+  stroke?: {
+    color: string;
+    width: number;
+  };
+  adjustments?: {
+    exposure: number;
+    contrast: number;
+    saturation: number;
+    temperature: number;
+    highlights: number;
+    shadows: number;
+  };
 }
 
 export interface ImageSlotLayerNode extends BaseLayerNode {
@@ -217,6 +240,7 @@ export interface ImageSlotLayerNode extends BaseLayerNode {
   fallbackUrl?: string;
   url?: string;
   assignedMediaUrl?: string;
+  prompt?: string;
   slotId?: string;
   slotLabel?: string;
 }
@@ -274,6 +298,28 @@ export interface LogoLayerNode extends BaseLayerNode {
   type: 'logo';
   url: string;
   scale: number;
+  sourceMode?: 'fixed' | 'brand';
+  brandAssetRole?: BrandAssetRole;
+}
+
+export type BrandAssetRole = 'logoPrimary' | 'logoLight' | 'logoDark' | 'iconMark';
+
+export interface BrandProfileAsset {
+  id: string;
+  role: BrandAssetRole;
+  url: string;
+  fileName: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/svg+xml';
+}
+
+export interface BrandProfile {
+  id: string;
+  workspaceId: string;
+  name: string;
+  assets: Partial<Record<BrandAssetRole, BrandProfileAsset>>;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
 }
 
 export interface CreativeDirectionConfig {
@@ -298,9 +344,20 @@ export interface AISettings {
   };
   routing: {
     copy: string;
+    review: string;
     prompt: string;
     image: string;
-    upscale: string;
+  };
+  instructions: {
+    copy: string;
+    review: string;
+    imageCover: string;
+    imageContent: string;
+    imageCta: string;
+  };
+  creativeDirector: {
+    enabled: boolean;
+    rules: { global: string; cover: string; content: string; cta: string };
   };
 }
 

@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { DEFAULT_AI_ROUTING, isCopyModel } from '../../../../lib/aiModels';
+import { requestLunaText } from '../../../../lib/openaiServer';
+import { workspaceServiceStatus } from '../../../../lib/serverAuth';
 
 export interface AIPipelineRequest {
   idempotencyKey: string;
   topic: string;
   slideCount?: number;
   templateId?: string;
+  instructions?: string;
+  model?: string;
 }
 
 export interface GeneratedSlide {
@@ -21,73 +26,65 @@ export interface AIPipelineResponse {
   error?: string;
 }
 
-// ─── Verified Candidate Models Cascade ────────────────────────────────────────
+class CopyProviderError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
 
-const CANDIDATE_MODELS = [
+const FALLBACK_MODELS = [
+  'gemini-3.6-flash',
+  'gemini-3-flash-preview',
   'gemini-3.5-flash',
   'gemini-3.1-flash-lite',
-  'gemini-flash-latest'
 ];
 
-// ─── Gemini Multi-Model Caller with Retries ───────────────────────────────────
-
-async function callGemini(prompt: string, systemPrompt: string): Promise<string> {
+async function callGemini(prompt: string, systemPrompt: string, preferredModel: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('NO_API_KEY');
-
+  const modelsToTry = [preferredModel, ...FALLBACK_MODELS.filter(model => model !== preferredModel)];
   let lastError: Error | null = null;
 
-  for (const model of CANDIDATE_MODELS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                temperature: 0.6,
-                topP: 0.9,
-                maxOutputTokens: 2500,
-                responseMimeType: 'application/json',
-                thinkingConfig: { thinkingBudget: 0 }
-              },
-              systemInstruction: { parts: [{ text: systemPrompt }] }
-            })
-          }
-        );
-
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const data = await res.json();
-          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) return text;
-        }
-
-        const errText = await res.text().catch(() => '');
-        console.warn(`[AI Pipeline] ${model} attempt ${attempt + 1} returned ${res.status}: ${errText.substring(0, 120)}`);
-        
-        if (res.status === 503 || res.status === 429) {
-          await new Promise((r) => setTimeout(r, 800));
-        } else {
-          break; // Try next candidate model
-        }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[AI Pipeline] ${model} attempt ${attempt + 1} failed:`, err.message);
-        await new Promise((r) => setTimeout(r, 600));
+  for (const model of modelsToTry) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.6, topP: 0.9, maxOutputTokens: 2500,
+            responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 },
+          },
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.find((part: { text?: string }) => part.text)?.text;
+        if (text) return text;
+        lastError = new CopyProviderError('Gemini returned no slide text.', 502);
+      } else {
+        lastError = response.status === 429
+          ? new CopyProviderError('Gemini is rate-limited right now.', 429)
+          : response.status >= 500
+            ? new CopyProviderError('Gemini is busy right now.', 503)
+            : response.status === 401 || response.status === 403
+              ? new CopyProviderError('The Gemini API key was rejected. Check the server configuration.', 503)
+              : new CopyProviderError('Gemini could not generate this carousel.', 502);
+        if (response.status === 401 || response.status === 403) throw lastError;
       }
+    } catch (error) {
+      if (error instanceof CopyProviderError) throw error;
+      lastError = new CopyProviderError(controller.signal.aborted ? 'Gemini timed out.' : 'Could not reach Gemini.', 503);
+    } finally {
+      clearTimeout(timeout);
     }
   }
-
-  throw lastError || new Error('All Gemini model endpoints failed');
+  throw lastError || new CopyProviderError('Gemini is busy right now.', 503);
 }
 
 // ─── Research & Copywriting Prompt Engine ─────────────────────────────────────
@@ -138,75 +135,67 @@ Every single slide MUST contain concrete facts, names, dates, numbers, or specif
 Slide titles must be punchy and under 8 words. Body copy must be 130–195 characters long.
 Always output pure valid JSON only.`;
 
-// ─── Intelligent Semantic Fallback ────────────────────────────────────────────
-
-function buildFallback(topic: string, slideCount: number): GeneratedSlide[] {
-  const cleanTopic = topic.trim().replace(/^["']|["']$/g, '');
-  const words = cleanTopic.split(/\s+/).slice(0, 6).join(' ');
-
-  return Array.from({ length: slideCount }, (_, i) => {
-    const role = i === 0 ? 'cover_hook' : (i === slideCount - 1 ? 'cta' : 'value');
-    if (role === 'cover_hook') {
-      return {
-        index: i,
-        segmentRole: 'cover_hook',
-        slide_title: cleanTopic.toUpperCase()
-      };
-    }
-    if (role === 'cta') {
-      return {
-        index: i,
-        segmentRole: 'cta',
-        slide_title: 'Save this post & follow for more breakdowns'
-      };
-    }
-    return {
-      index: i,
-      segmentRole: 'value',
-      slide_title: `${i}. Deep Dive into ${words}`,
-      slide_body: `A key breakdown of how ${cleanTopic} shaped historical developments and continues to impact modern perspectives today.`
-    };
-  });
-}
-
 // ─── Route Handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
+    const access = await workspaceServiceStatus(req, 'copy');
+    if (access !== 200) return NextResponse.json({ error: access === 429 ? 'AI copy limit reached. Try again in an hour.' : 'Sign in to an organisation to use AI.' }, { status: access });
     const body: AIPipelineRequest = await req.json();
-    if (!body.topic || !body.idempotencyKey) {
+    if (typeof body.topic !== 'string' || !body.topic.trim() || typeof body.idempotencyKey !== 'string') {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
     }
+    if (body.model !== undefined && !isCopyModel(body.model)) {
+      return NextResponse.json({ error: 'Unsupported copy model' }, { status: 400 });
+    }
 
-    const slideCount = Math.max(body.slideCount || 5, 3);
+    const model = body.model || DEFAULT_AI_ROUTING.copy;
+    const requiredKey = model === 'openai:gpt-6-luna' ? 'OPENAI_API_KEY' : 'GEMINI_API_KEY';
+    if (!process.env[requiredKey]) return NextResponse.json({ error: `AI copy needs a server-side ${requiredKey}. You can still outline the carousel yourself.` }, { status: 503 });
+
+    const slideCount = Math.min(20, Math.max(Number(body.slideCount) || 5, 3));
     let title = body.topic.substring(0, 60);
     let slides: GeneratedSlide[];
 
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        const prompt = buildCopyPrompt(body.topic, slideCount);
-        const raw = await callGemini(prompt, SYSTEM_PROMPT);
-        
-        // Clean markdown codeblocks if present
-        const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-        const parsed = JSON.parse(cleaned);
+    try {
+      const prompt = buildCopyPrompt(body.topic, slideCount);
+      const instructions = typeof body.instructions === 'string' ? body.instructions.slice(0, 20000) : '';
+      const systemPrompt = `${SYSTEM_PROMPT}\n\nUSER MASTER INSTRUCTIONS:\n${instructions}`;
+      const raw = model === 'openai:gpt-6-luna'
+        ? await requestLunaText(prompt, systemPrompt, { maxOutputTokens: 6000, jsonSchema: {
+          name: 'carousel_copy', schema: {
+            type: 'object', additionalProperties: false, required: ['title', 'slides'], properties: {
+              title: { type: 'string' }, slides: { type: 'array', items: { type: 'object', additionalProperties: false,
+                required: ['index', 'segmentRole', 'slide_title', 'slide_body'], properties: {
+                  index: { type: 'integer' }, segmentRole: { type: 'string', enum: ['cover_hook', 'value', 'cta'] },
+                  slide_title: { type: 'string' }, slide_body: { type: 'string' },
+                } } },
+            },
+          },
+        } })
+        : await callGemini(prompt, systemPrompt, model);
 
-        title = parsed.title || title;
+      // Clean markdown codeblocks if present
+      const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
 
-        // Normalise and validate each slide
-        slides = (parsed.slides as any[]).map((s, i) => ({
-          index: i,
-          segmentRole: s.segmentRole || (i === 0 ? 'cover_hook' : i === slideCount - 1 ? 'cta' : 'value'),
-          slide_title: s.slide_title || `Key Insight #${i + 1}`,
-          slide_body: s.slide_body ? s.slide_body.substring(0, 210) : undefined,
-        }));
-      } catch (aiErr: any) {
-        console.error('[AI Pipeline] Gemini cascade error:', aiErr.message);
-        slides = buildFallback(body.topic, slideCount);
+      if (!Array.isArray(parsed.slides) || parsed.slides.length !== slideCount ||
+          parsed.slides.some((s: any) => !s || typeof s.slide_title !== 'string' || !s.slide_title.trim())) {
+        throw new Error('AI returned an incomplete carousel');
       }
-    } else {
-      console.warn('[AI Pipeline] No GEMINI_API_KEY — using fallback copy');
-      slides = buildFallback(body.topic, slideCount);
+      title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : title;
+      slides = parsed.slides.map((s: any, i: number) => ({
+        index: i,
+        segmentRole: i === 0 ? 'cover_hook' : i === slideCount - 1 ? 'cta' : 'value',
+        slide_title: s.slide_title.trim(),
+        slide_body: typeof s.slide_body === 'string' ? s.slide_body.substring(0, 210) : undefined,
+      }));
+    } catch (aiErr: any) {
+      console.error('[AI Pipeline] Copy generation error:', aiErr.message);
+      if (aiErr instanceof CopyProviderError) {
+        return NextResponse.json({ error: aiErr.message }, { status: aiErr.status });
+      }
+      return NextResponse.json({ error: 'AI copy generation failed. Your topic is preserved; retry or create a template draft.' }, { status: 502 });
     }
 
     const response: AIPipelineResponse = { success: true, title, slides };

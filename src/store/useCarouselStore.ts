@@ -2,14 +2,47 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import {
   CarouselDocument, SlideSceneNode, LayerNode, TextLayerNode, ImageLayerNode, ImageSlotLayerNode,
-  ShapeLayerNode, ShapeFill, AISettings, AssetRecord, CarouselTemplate, MasterLayoutNode, LogoLayerNode
+  ShapeLayerNode, ShapeFill, AISettings, AssetRecord, CarouselTemplate, MasterLayoutNode, LogoLayerNode, BrandProfile
 } from '../types/schema';
 
 import {
   saveDocumentToIDB, getAllDocumentsFromIDB, deleteDocumentFromIDB, importLegacyLocalStorageToIDB,
-  saveTemplateToIDB, getAllTemplatesFromIDB, deleteTemplateFromIDB
+  saveTemplateToIDB, getAllTemplatesFromIDB, deleteTemplateFromIDB,
+  saveBrandProfileToIDB, getAllBrandProfilesFromIDB, deleteBrandProfileFromIDB
 } from '../lib/idb';
 import { autoSizeTextLayer } from '../lib/textEngine';
+import { DEFAULT_AI_ROUTING, isCopyModel, isDirectionModel, isImageModel } from '../lib/aiModels';
+import { DEFAULT_CREATIVE_DIRECTOR, DEFAULT_MASTER_INSTRUCTIONS } from '../lib/aiDefaults';
+import { authorisedFetch, getCloudWorkspace } from '../lib/cloud';
+
+function layersForClipboard(layers: LayerNode[], selectedIds: string[]): LayerNode[] {
+  const included = new Set(selectedIds);
+  let added = true;
+  while (added) {
+    added = false;
+    layers.forEach((layer) => {
+      if (layer.parentId && included.has(layer.parentId) && !included.has(layer.id)) {
+        included.add(layer.id);
+        added = true;
+      }
+    });
+  }
+
+  const byId = new Map(layers.map((layer) => [layer.id, layer]));
+  return layers.filter((layer) => included.has(layer.id)).map((layer) => {
+    const copied = JSON.parse(JSON.stringify(layer)) as LayerNode;
+    if (copied.parentId && !included.has(copied.parentId)) {
+      let ancestor = byId.get(copied.parentId);
+      while (ancestor) {
+        copied.x += ancestor.x;
+        copied.y += ancestor.y;
+        ancestor = ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
+      }
+      copied.parentId = null;
+    }
+    return copied;
+  });
+}
 
 
 interface HistorySnapshot {
@@ -31,7 +64,7 @@ interface DrawingShapeState {
 
 interface CarouselState {
   // Navigation & Shell
-  currentView: 'dashboard' | 'editor' | 'templates' | 'creative-director' | 'settings';
+  currentView: 'dashboard' | 'editor' | 'templates' | 'settings';
   
   // Document Collection & Active State
   documents: CarouselDocument[];
@@ -40,6 +73,8 @@ interface CarouselState {
 
   // Template System State
   templates: CarouselTemplate[];
+  brandProfiles: BrandProfile[];
+  previewBrandId: string | null;
   activeTemplateId: string | null;
   activeLayoutId: string | null;
   isTemplateEditorMode: boolean;
@@ -90,14 +125,21 @@ interface CarouselState {
   setDrawingShape: (shape: DrawingShapeState | null) => void;
 
   loadDocumentsFromStorage: () => Promise<void>;
+  resetWorkspace: () => void;
   openDocument: (id: string) => void;
   createDocument: (title: string, topic: string, slideCount: number, templateId: string, aiCopy?: { title?: string; slides?: Array<{ index: number; segmentRole: string; slide_title?: string; slide_body?: string }> }) => Promise<string>;
+
 
 
   deleteDocument: (id: string) => Promise<void>;
 
   // Template System Actions
   loadTemplatesFromStorage: () => Promise<void>;
+  loadBrandProfilesFromStorage: () => Promise<void>;
+  createBrandProfile: (name: string, createdBy?: string) => Promise<string>;
+  updateBrandProfile: (id: string, patch: Partial<Pick<BrandProfile, 'name' | 'assets'>>) => Promise<void>;
+  deleteBrandProfile: (id: string) => Promise<void>;
+  setPreviewBrandId: (id: string | null) => void;
   createTemplate: (name: string, startFromType?: 'blank' | 'duplicate' | 'carousel', sourceId?: string) => Promise<string>;
   createTemplateFromCarousel: (documentId: string, name: string, selectedSlideIds?: string[], layerSlotOverrides?: Record<string, string>) => Promise<string>;
   saveCurrentSlideAsLayout: (slideId: string, templateId: string, layoutName: string, role: MasterLayoutNode['role'], layerSlotOverrides?: Record<string, string>) => Promise<string>;
@@ -125,8 +167,10 @@ interface CarouselState {
   deleteSlide: (slideId: string) => void;
   moveSlide: (slideId: string, fromIndex: number, toIndex: number) => void;
   updateSlideBg: (color: string) => void;
-  setSlideImageUrl: (slideId: string, url: string, prompt?: string) => void;
-  generateSlideImage: (slideId: string, customPrompt?: string, style?: string) => Promise<any>;
+  setSlideImageUrl: (slideId: string, url: string, prompt?: string, targetLayerId?: string) => void;
+  generateSlideImage: (slideId: string, customPrompt?: string, style?: string, imageModel?: string, targetLayerId?: string) => Promise<any>;
+  applyImageConcept: (conceptId: string, slideId: string, targetLayerId?: string) => void;
+  importInstagramCarousel: (sourceUrl: string, images: string[], caption?: string) => Promise<string>;
 
   // Selection Mutators
   setSelectedLayerId: (id: string | null) => void;
@@ -148,6 +192,7 @@ interface CarouselState {
   addTextLayer: (initialText?: string, x?: number, y?: number) => void;
   addImageLayerFromFile: (file: File) => Promise<void>;
   addImageLayerFromUrl: (url: string) => void;
+  addEmptyImageLayer: () => void;
   addImageSlotLayer: (
     semanticRole?: string,
     x?: number,
@@ -190,7 +235,12 @@ interface CarouselState {
   // Settings Actions
   setPerformancePreset: (preset: AISettings['preset']) => void;
   setApiKey: (provider: keyof AISettings['apiKeys'], key: string) => void;
+  loadAISettings: () => void;
+  updateAISettings: (routing: AISettings['routing'], instructions: AISettings['instructions']) => void;
+  updateCreativeDirectorSettings: (creativeDirector: AISettings['creativeDirector']) => void;
 }
+
+const SEED_TIMESTAMP = '2026-01-01T00:00:00.000Z';
 
 const DEFAULT_DOC: CarouselDocument = {
   schemaVersion: '2.0',
@@ -198,7 +248,7 @@ const DEFAULT_DOC: CarouselDocument = {
   workspaceId: 'default-workspace',
   title: '5 SaaS Growth Hacks for 2026',
   topic: 'SaaS Growth & AI Automation',
-  templateRef: { templateId: 'bbc', version: 1, overrides: {} },
+  templateRef: { templateId: 'tpl-bbc', version: 1, overrides: {} },
   dimensions: { width: 1080, height: 1440, aspectRatio: '4:5' },
   slides: [
     {
@@ -269,8 +319,8 @@ const DEFAULT_DOC: CarouselDocument = {
     ctaRules: 'High contrast call to action.',
     enabled: true
   },
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
+  createdAt: SEED_TIMESTAMP,
+  updatedAt: SEED_TIMESTAMP
 };
 
 const SYSTEM_TEMPLATES: CarouselTemplate[] = [
@@ -281,8 +331,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Dramatic full-bleed image layouts with bold uppercase typography, logo tag, and cyan highlights.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: true,
     isSystemTemplate: true,
@@ -650,8 +700,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Clean dark theme with high contrast typography and subtle blue accent rules.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: false,
     isSystemTemplate: true,
@@ -974,8 +1024,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Bold editorial crimson red aesthetic designed for high urgency & breaking news carousels.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: false,
     isSystemTemplate: true,
@@ -1150,8 +1200,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Sleek cyberpunk dark mode layout with glowing cyan & neon accents.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: false,
     isSystemTemplate: true,
@@ -1274,8 +1324,8 @@ const SYSTEM_TEMPLATES: CarouselTemplate[] = [
     description: 'Soft dark violet background with glowing pastel gradients for creative creators.',
     thumbnailAssetId: null,
     version: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
     createdBy: 'System',
     isDefault: false,
     isSystemTemplate: true,
@@ -1402,6 +1452,8 @@ export const useCarouselStore = create<CarouselState>()(
 
     // Template System Initial State
     templates: SYSTEM_TEMPLATES,
+    brandProfiles: [],
+    previewBrandId: null,
     activeTemplateId: 'tpl-minimalist',
     activeLayoutId: 'layout-min-cover',
     isTemplateEditorMode: false,
@@ -1431,12 +1483,9 @@ export const useCarouselStore = create<CarouselState>()(
     settings: {
       preset: 'balanced',
       apiKeys: {},
-      routing: {
-        copy: 'gpt-4o',
-        prompt: 'claude-3-5-sonnet',
-        image: 'nanobanana-2',
-        upscale: 'gemini-1.5'
-      }
+      routing: DEFAULT_AI_ROUTING,
+      instructions: DEFAULT_MASTER_INSTRUCTIONS,
+      creativeDirector: DEFAULT_CREATIVE_DIRECTOR,
     },
 
     getActiveSlide: () => {
@@ -1459,7 +1508,10 @@ export const useCarouselStore = create<CarouselState>()(
       return tpl.layouts.find(l => l.id === state.activeLayoutId) || tpl.layouts[0];
     },
 
-    setView: (view) => set((state) => { state.currentView = view; }),
+    setView: (view) => set((state) => {
+      state.currentView = view;
+      if (view !== 'editor') state.editorMode = 'select';
+    }),
     setEditorMode: (mode) => set((state) => { state.editorMode = mode; }),
     setActiveTool: (tool) => set((state) => { state.activeTool = tool; }),
     setActiveShapeType: (shapeType) => set((state) => { state.activeShapeType = shapeType; }),
@@ -1469,30 +1521,70 @@ export const useCarouselStore = create<CarouselState>()(
 
     // TEMPLATE ACTIONS IMPLEMENTATION
     loadTemplatesFromStorage: async () => {
-      let storedTpls = await getAllTemplatesFromIDB();
-      if (!storedTpls || storedTpls.length === 0) {
-        for (const sysTpl of SYSTEM_TEMPLATES) {
-          await saveTemplateToIDB(sysTpl);
-        }
-        storedTpls = SYSTEM_TEMPLATES;
-      } else {
-        for (const sysTpl of SYSTEM_TEMPLATES) {
-          const exists = storedTpls.some(t => t.id === sysTpl.id);
-          if (!exists) {
-            await saveTemplateToIDB(sysTpl);
-            storedTpls.unshift(sysTpl);
-          }
-        }
+      const savedTemplates = await getAllTemplatesFromIDB();
+      const systemIds = new Set(SYSTEM_TEMPLATES.map(template => template.id));
+      const savedDefaultId = savedTemplates.find(template => template.isDefault)?.id;
+      const defaultId = savedDefaultId || SYSTEM_TEMPLATES.find(template => template.isDefault)?.id || SYSTEM_TEMPLATES[0]?.id;
+      const systemTemplates = SYSTEM_TEMPLATES.map(template => ({ ...template, isDefault: template.id === defaultId }));
+      const customTemplates = savedTemplates.filter(template => !systemIds.has(template.id));
+      const storedTpls = [...systemTemplates, ...customTemplates];
+
+      // Keep local copies in sync with the bundled platform presets without touching user templates.
+      if (!getCloudWorkspace()) {
+        for (const template of systemTemplates) await saveTemplateToIDB(template);
       }
       set((state) => {
         state.templates = storedTpls;
-        const defaultTpl = storedTpls.find(t => t.id === 'tpl-explain-editorial') || storedTpls.find(t => t.isDefault) || storedTpls[0];
+        const defaultTpl = storedTpls.find(t => t.isDefault) || storedTpls[0];
         if (defaultTpl) {
           state.activeTemplateId = defaultTpl.id;
           state.activeLayoutId = defaultTpl.layouts[0]?.id || null;
         }
       });
     },
+
+    loadBrandProfilesFromStorage: async () => {
+      const profiles = await getAllBrandProfilesFromIDB();
+      set(state => {
+        state.brandProfiles = profiles;
+        if (state.previewBrandId && !profiles.some(profile => profile.id === state.previewBrandId)) state.previewBrandId = null;
+      });
+    },
+
+    createBrandProfile: async (name, createdBy = 'local') => {
+      const now = new Date().toISOString();
+      const id = `brand-${crypto.randomUUID()}`;
+      const profile: BrandProfile = {
+        id, workspaceId: getCloudWorkspace() || 'local', name: name.trim(), assets: {},
+        createdAt: now, updatedAt: now, createdBy,
+      };
+      if (!profile.name) throw new Error('Enter a brand name.');
+      await saveBrandProfileToIDB(profile);
+      set(state => { state.brandProfiles.unshift(profile); });
+      return id;
+    },
+
+    updateBrandProfile: async (id, patch) => {
+      const current = get().brandProfiles.find(profile => profile.id === id);
+      if (!current) throw new Error('Brand profile not found.');
+      const next = { ...current, ...patch, assets: patch.assets || current.assets, updatedAt: new Date().toISOString() };
+      if (patch.name !== undefined && !patch.name.trim()) throw new Error('Enter a brand name.');
+      await saveBrandProfileToIDB(next);
+      set(state => {
+        const index = state.brandProfiles.findIndex(profile => profile.id === id);
+        if (index >= 0) state.brandProfiles[index] = next;
+      });
+    },
+
+    deleteBrandProfile: async (id) => {
+      await deleteBrandProfileFromIDB(id);
+      set(state => {
+        state.brandProfiles = state.brandProfiles.filter(profile => profile.id !== id);
+        if (state.previewBrandId === id) state.previewBrandId = null;
+      });
+    },
+
+    setPreviewBrandId: id => set(state => { state.previewBrandId = id; }),
 
     createTemplate: async (name, startFromType = 'blank', sourceId) => {
       const state = get();
@@ -1685,15 +1777,14 @@ export const useCarouselStore = create<CarouselState>()(
       const target = state.templates.find(t => t.id === templateId);
       if (!target) return;
 
-      target.name = trimmed;
-      target.updatedAt = new Date().toISOString();
-      await saveTemplateToIDB(target);
+      const updatedAt = new Date().toISOString();
+      await saveTemplateToIDB({ ...target, name: trimmed, updatedAt });
 
       set((draft) => {
         const tpl = draft.templates.find(t => t.id === templateId);
         if (tpl) {
           tpl.name = trimmed;
-          tpl.updatedAt = new Date().toISOString();
+          tpl.updatedAt = updatedAt;
         }
       });
     },
@@ -2227,20 +2318,34 @@ export const useCarouselStore = create<CarouselState>()(
     }),
 
     loadDocumentsFromStorage: async () => {
-      await importLegacyLocalStorageToIDB();
+      if (!getCloudWorkspace()) await importLegacyLocalStorageToIDB();
       let storedDocs = await getAllDocumentsFromIDB();
-      if (!storedDocs || storedDocs.length === 0) {
+      if ((!storedDocs || storedDocs.length === 0) && !getCloudWorkspace()) {
         await saveDocumentToIDB(DEFAULT_DOC);
         storedDocs = [DEFAULT_DOC];
       }
       set((state) => {
         state.documents = storedDocs;
         if (!state.activeDocumentId || !storedDocs.find(d => d.id === state.activeDocumentId)) {
-          state.activeDocumentId = storedDocs[0].id;
-          state.activeSlideId = storedDocs[0].slides[0]?.id || null;
+          state.activeDocumentId = storedDocs[0]?.id || null;
+          state.activeSlideId = storedDocs[0]?.slides[0]?.id || null;
         }
       });
     },
+
+    resetWorkspace: () => set((state) => {
+      state.documents = [];
+      state.templates = SYSTEM_TEMPLATES;
+      state.brandProfiles = [];
+      state.previewBrandId = null;
+      state.activeDocumentId = null;
+      state.activeSlideId = null;
+      state.selectedLayerId = null;
+      state.selectedLayerIds = [];
+      state.history = [];
+      state.historyIndex = -1;
+      state.currentView = 'dashboard';
+    }),
 
     openDocument: (id) => set((state) => {
       const doc = state.documents.find(d => d.id === id);
@@ -2258,7 +2363,7 @@ export const useCarouselStore = create<CarouselState>()(
 
       const state = get();
       const selectedTpl = state.templates.find(t => t.id === templateId) || state.templates.find(t => t.isDefault) || state.templates[0];
-      const newDocId = `doc-${Date.now()}`;
+      const newDocId = `doc-${crypto.randomUUID()}`;
 
       // ── Brand asset extraction from template ────────────────────────────────
       // Pull headline/body fonts from template design tokens (fallback to Space Grotesk)
@@ -2300,7 +2405,7 @@ export const useCarouselStore = create<CarouselState>()(
             semanticRole: 'headline',
             type: 'text',
             role: 'headline',
-            content: aiSlide?.slide_title || (idx === 0 ? (aiCopy?.title || title || 'Untitled Carousel') : `Key Takeaway #${idx}`),
+            content: aiSlide?.slide_title || (idx === 0 ? (title || 'Untitled Carousel') : idx === slideCount - 1 ? 'Your closing thought' : `Point ${idx}`),
             x: 60,
             y: idx === 0 ? 800 : 200,
             width: 960,
@@ -2343,14 +2448,15 @@ export const useCarouselStore = create<CarouselState>()(
             }
           });
         } else {
-          // No AI copy — use sensible defaults from topic/title
+          // A manual draft keeps the template design without presenting sample copy as user content.
           const textLayers = layers
             .filter(l => l.type === 'text')
             .sort((a, b) => ((b as TextLayerNode).fontSize || 0) - ((a as TextLayerNode).fontSize || 0));
           textLayers.forEach((layer, rank) => {
             const tl = layer as TextLayerNode;
-            if (rank === 0) tl.content = idx === 0 ? (title || 'Untitled Carousel') : `Key Takeaway #${idx}`;
-            else if (rank === 1 && idx === 0) tl.content = topic || tl.content;
+            if (rank === 0) tl.content = idx === 0 ? (title || 'Untitled Carousel') : idx === slideCount - 1 ? 'Your closing thought' : `Point ${idx}`;
+            else if (rank === 1) tl.content = idx === 0 ? topic : idx === slideCount - 1 ? 'Add your call to action.' : 'Write the supporting copy for this slide.';
+            else tl.content = '';
           });
         }
 
@@ -2408,6 +2514,45 @@ export const useCarouselStore = create<CarouselState>()(
       return newDoc.id;
     },
 
+    importInstagramCarousel: async (sourceUrl, images, caption) => {
+      if (images.length === 0) throw new Error('No images were found in this post.');
+      const template = get().templates.find(item => item.isDefault) || get().templates[0];
+      const now = new Date().toISOString();
+      const newDoc: CarouselDocument = {
+        schemaVersion: '2.0',
+        id: crypto.randomUUID(),
+        workspaceId: 'default-workspace',
+        title: caption?.split('\n')[0]?.trim().slice(0, 60) || 'Instagram carousel',
+        topic: caption?.trim() || 'Imported Instagram carousel',
+        sourceUrl: sourceUrl || undefined,
+        templateRef: { templateId: template?.id || '', version: template?.version || 1, overrides: {} },
+        dimensions: { width: 1080, height: 1440, aspectRatio: '4:5' },
+        slides: images.map((url, index): SlideSceneNode => ({
+          id: crypto.randomUUID(),
+          segmentRole: index === 0 ? 'cover_hook' : index === images.length - 1 ? 'cta' : 'value',
+          backgroundColor: '#ffffff',
+          layers: [{
+            id: crypto.randomUUID(), name: 'Imported slide image', type: 'image',
+            semanticRole: 'hero_image', url, status: 'ready',
+            x: 0, y: 0, width: 1080, height: 1440, rotation: 0, opacity: 1,
+            isLocked: false, isVisible: true, zIndex: 0, borderRadius: 0
+          }]
+        })),
+        globalCreativeDirection: { globalRules: '', coverRules: '', contentRules: '', ctaRules: '', enabled: false },
+        createdAt: now,
+        updatedAt: now
+      };
+      await saveDocumentToIDB(newDoc);
+      set(state => {
+        state.documents.unshift(newDoc);
+        state.activeDocumentId = newDoc.id;
+        state.activeSlideId = newDoc.slides[0].id;
+        state.selectedLayerId = null;
+        state.currentView = 'editor';
+      });
+      return newDoc.id;
+    },
+
 
     deleteDocument: async (id) => {
 
@@ -2426,6 +2571,7 @@ export const useCarouselStore = create<CarouselState>()(
     setActiveSlideId: (slideId) => set((state) => {
       state.activeSlideId = slideId;
       state.selectedLayerId = null;
+      state.selectedLayerIds = [];
       state.editingTextId = null;
       state.editorMode = 'select';
     }),
@@ -2559,11 +2705,13 @@ export const useCarouselStore = create<CarouselState>()(
       }
     }),
 
-    setSlideImageUrl: (slideId, url, prompt) => set((state) => {
+    setSlideImageUrl: (slideId, url, prompt, targetLayerId) => set((state) => {
       const doc = state.documents.find((d) => d.id === state.activeDocumentId);
       const slide = doc?.slides.find((s) => s.id === slideId);
       if (!slide || !doc) return;
 
+      const explicitTarget = targetLayerId ? slide.layers.find(l => l.id === targetLayerId) : undefined;
+      if (targetLayerId && (!explicitTarget || (explicitTarget.type !== 'image' && explicitTarget.type !== 'image-slot'))) return;
       pushHistorySnapshot(get(), state, 'SET_SLIDE_IMAGE');
 
       const isLogo = (l: LayerNode) =>
@@ -2574,13 +2722,30 @@ export const useCarouselStore = create<CarouselState>()(
         (l.name && l.name.toLowerCase().includes('logo')) ||
         l.id.toLowerCase().includes('logo');
 
+      const assignImage = (layer: ImageLayerNode | ImageSlotLayerNode) => {
+        if (layer.type === 'image-slot') {
+          layer.assignedMediaUrl = url;
+          layer.url = url;
+          layer.fallbackUrl = url;
+          if (prompt) layer.prompt = prompt;
+        } else {
+          layer.url = url;
+          layer.localPreviewUrl = url;
+          layer.status = 'ready';
+          if (prompt) layer.prompt = prompt;
+        }
+      };
+
+      if (targetLayerId) {
+        assignImage(explicitTarget as ImageLayerNode | ImageSlotLayerNode);
+        persistActiveDocument(doc);
+        return;
+      }
+
       // 1. If an image-slot exists on this slide (and is NOT a logo), assign to it
       const slotLayer = slide.layers.find((l) => l.type === 'image-slot' && !isLogo(l)) as ImageSlotLayerNode | undefined;
       if (slotLayer) {
-        slotLayer.assignedMediaUrl = url;
-        slotLayer.url = url;
-        slotLayer.fallbackUrl = url;
-        if (prompt) (slotLayer as any).prompt = prompt;
+        assignImage(slotLayer);
         persistActiveDocument(doc);
         return;
       }
@@ -2588,10 +2753,7 @@ export const useCarouselStore = create<CarouselState>()(
       // 2. If an image layer exists (and is NOT a logo), update it
       const imgLayer = slide.layers.find((l) => l.type === 'image' && !isLogo(l)) as ImageLayerNode | undefined;
       if (imgLayer) {
-        imgLayer.url = url;
-        imgLayer.localPreviewUrl = url;
-        imgLayer.status = 'ready';
-        if (prompt) imgLayer.prompt = prompt;
+        assignImage(imgLayer);
         persistActiveDocument(doc);
         return;
       }
@@ -2621,11 +2783,14 @@ export const useCarouselStore = create<CarouselState>()(
       persistActiveDocument(doc);
     }),
 
-    generateSlideImage: async (slideId, customPrompt, style) => {
+    generateSlideImage: async (slideId, customPrompt, style, imageModel, targetLayerId) => {
       const state = get();
       const doc = state.documents.find((d) => d.id === state.activeDocumentId);
       const slide = doc?.slides.find((s) => s.id === slideId);
       if (!slide || !doc) throw new Error('Slide not found');
+      if (targetLayerId && !slide.layers.some(l => l.id === targetLayerId && (l.type === 'image' || l.type === 'image-slot'))) {
+        throw new Error('The selected image layer is no longer available.');
+      }
 
       const textLayers = slide.layers.filter((l) => l.type === 'text' && (l as TextLayerNode).content?.trim()) as TextLayerNode[];
       const sortedByFontSize = [...textLayers].sort((a, b) => (b.fontSize || 0) - (a.fontSize || 0));
@@ -2635,8 +2800,19 @@ export const useCarouselStore = create<CarouselState>()(
 
       const slideTitle = titleLayer?.content || `Slide #${doc.slides.findIndex((s) => s.id === slideId) + 1}`;
       const slideBody = bodyLayer?.content || '';
+      const isCover = slide.segmentRole === 'cover_hook' || doc.slides[0]?.id === slideId;
+      const task = slide.segmentRole === 'cta' ? 'cta' : isCover ? 'cover' : 'content';
+      const masterPrompt = task === 'cta'
+        ? state.settings.instructions.imageCta
+        : task === 'cover'
+          ? state.settings.instructions.imageCover
+          : state.settings.instructions.imageContent;
+      const creativeRules = state.settings.creativeDirector;
+      const instructions = creativeRules.enabled
+        ? [masterPrompt, creativeRules.rules.global, creativeRules.rules[task]].filter(Boolean).join('\n\n')
+        : masterPrompt;
 
-      const res = await fetch('/api/ai/image', {
+      const res = await authorisedFetch('/api/ai/image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2645,7 +2821,10 @@ export const useCarouselStore = create<CarouselState>()(
           slideTitle,
           slideBody,
           customPrompt,
-          style: style || 'Cinematic Photography'
+          style: style || 'Cinematic Photography',
+          model: imageModel || state.settings.routing.image,
+          promptModel: state.settings.routing.prompt,
+          instructions
         })
       });
 
@@ -2656,27 +2835,48 @@ export const useCarouselStore = create<CarouselState>()(
 
       const data = await res.json();
       if (data.success && data.imageUrl) {
-        get().setSlideImageUrl(slideId, data.imageUrl, data.optimizedPrompt);
+        set(current => {
+          const target = current.documents.find(item => item.id === doc.id);
+          if (!target) return;
+          target.generatedImages ||= [];
+          target.generatedImages.push({
+            id: crypto.randomUUID(), slideId, imageUrl: data.imageUrl,
+            prompt: data.optimizedPrompt || customPrompt || '',
+            model: data.model || imageModel || state.settings.routing.image,
+            createdAt: new Date().toISOString()
+          });
+        });
+        get().setSlideImageUrl(slideId, data.imageUrl, data.optimizedPrompt, targetLayerId);
         return data;
       } else {
         throw new Error(data.error || 'Failed to generate image');
       }
     },
 
+    applyImageConcept: (conceptId, slideId, targetLayerId) => {
+      const doc = get().documents.find(item => item.id === get().activeDocumentId);
+      const concept = doc?.generatedImages?.find(item => item.id === conceptId);
+      if (!concept) return;
+      get().setSlideImageUrl(slideId, concept.imageUrl, concept.prompt, targetLayerId);
+    },
+
     // SELECTION MUTATORS
     setSelectedLayerId: (id) => set((state) => {
+      if (state.editorMode === 'crop-image' && id !== state.selectedLayerId) state.editorMode = 'select';
       state.selectedLayerId = id;
       state.selectedLayerIds = id ? [id] : [];
       if (id !== state.editingTextId) state.editingTextId = null;
     }),
 
     setSelectedLayerIds: (ids) => set((state) => {
+      if (state.editorMode === 'crop-image') state.editorMode = 'select';
       state.selectedLayerIds = ids;
       state.selectedLayerId = ids[ids.length - 1] || null;
       if (!ids.includes(state.editingTextId || '')) state.editingTextId = null;
     }),
 
     toggleLayerSelection: (id, isMulti = false, isRange = false) => set((state) => {
+      if (state.editorMode === 'crop-image') state.editorMode = 'select';
       if (isMulti) {
         if (state.selectedLayerIds.includes(id)) {
           state.selectedLayerIds = state.selectedLayerIds.filter((lId) => lId !== id);
@@ -2997,21 +3197,32 @@ export const useCarouselStore = create<CarouselState>()(
         const tpl = state.templates.find((t) => t.id === state.activeTemplateId);
         const layout = tpl?.layouts.find((l) => l.id === state.activeLayoutId);
         if (!layout) return;
-        const selected = layout.layers.filter((l) => state.selectedLayerIds.includes(l.id));
-        state.clipboardLayers = JSON.parse(JSON.stringify(selected));
+        state.clipboardLayers = layersForClipboard(layout.layers, state.selectedLayerIds);
         state.clipboardSourceId = layout.id;
       } else {
         const doc = state.documents.find((d) => d.id === state.activeDocumentId);
         const slide = doc?.slides.find((s) => s.id === state.activeSlideId);
         if (!slide) return;
-        const selected = slide.layers.filter((l) => state.selectedLayerIds.includes(l.id));
-        state.clipboardLayers = JSON.parse(JSON.stringify(selected));
+        state.clipboardLayers = layersForClipboard(slide.layers, state.selectedLayerIds);
         state.clipboardSourceId = slide.id;
       }
     }),
 
     pasteLayers: () => set((state) => {
       if (state.clipboardLayers.length === 0) return;
+
+      const idMap = new Map(state.clipboardLayers.map((layer) => [layer.id, `l-copy-${crypto.randomUUID()}`]));
+      const copy = (layer: LayerNode, offset: number): LayerNode => {
+        const pasted = JSON.parse(JSON.stringify(layer)) as LayerNode;
+        pasted.id = idMap.get(layer.id)!;
+        pasted.parentId = layer.parentId && idMap.has(layer.parentId) ? idMap.get(layer.parentId)! : null;
+        if (pasted.type === 'group') pasted.childIds = pasted.childIds.map((id) => idMap.get(id) || id);
+        if (!pasted.parentId) {
+          pasted.x += offset;
+          pasted.y += offset;
+        }
+        return pasted;
+      };
 
       if (state.isTemplateEditorMode) {
         const tpl = state.templates.find((t) => t.id === state.activeTemplateId);
@@ -3022,21 +3233,10 @@ export const useCarouselStore = create<CarouselState>()(
 
         const isSameTarget = state.clipboardSourceId === layout.id;
         const offset = isSameTarget ? 24 : 0;
-        const pastedIds: string[] = [];
-
-        state.clipboardLayers.forEach((copied, idx) => {
-          const newId = `l-copy-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
-          const pasted: LayerNode = {
-            ...JSON.parse(JSON.stringify(copied)),
-            id: newId,
-            x: copied.x + offset,
-            y: copied.y + offset
-          };
-          layout.layers.unshift(pasted);
-          if (!layout.rootLayerIds) layout.rootLayerIds = layout.layers.map((l) => l.id);
-          layout.rootLayerIds.unshift(newId);
-          pastedIds.push(newId);
-        });
+        const pasted = state.clipboardLayers.map((layer) => copy(layer, offset));
+        layout.layers.unshift(...pasted);
+        layout.rootLayerIds = layout.layers.filter((layer) => !layer.parentId).map((layer) => layer.id);
+        const pastedIds = pasted.filter((layer) => !layer.parentId).map((layer) => layer.id);
 
         state.selectedLayerIds = pastedIds;
         state.selectedLayerId = pastedIds[0] || null;
@@ -3050,21 +3250,10 @@ export const useCarouselStore = create<CarouselState>()(
 
         const isSameTarget = state.clipboardSourceId === slide.id;
         const offset = isSameTarget ? 24 : 0;
-        const pastedIds: string[] = [];
-
-        state.clipboardLayers.forEach((copied, idx) => {
-          const newId = `l-copy-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`;
-          const pasted: LayerNode = {
-            ...JSON.parse(JSON.stringify(copied)),
-            id: newId,
-            x: copied.x + offset,
-            y: copied.y + offset
-          };
-          slide.layers.unshift(pasted);
-          if (!slide.rootLayerIds) slide.rootLayerIds = slide.layers.map((l) => l.id);
-          slide.rootLayerIds.unshift(newId);
-          pastedIds.push(newId);
-        });
+        const pasted = state.clipboardLayers.map((layer) => copy(layer, offset));
+        slide.layers.unshift(...pasted);
+        slide.rootLayerIds = slide.layers.filter((layer) => !layer.parentId).map((layer) => layer.id);
+        const pastedIds = pasted.filter((layer) => !layer.parentId).map((layer) => layer.id);
 
         state.selectedLayerIds = pastedIds;
         state.selectedLayerId = pastedIds[0] || null;
@@ -3247,6 +3436,39 @@ export const useCarouselStore = create<CarouselState>()(
       save();
     }),
 
+    addEmptyImageLayer: () => set((state) => {
+      const { container, save } = getActiveLayerContainerAndSave(state);
+      if (!container) return;
+
+      pushHistorySnapshot(get(), state, 'ADD_EMPTY_IMAGE_LAYER');
+      const id = `l-${crypto.randomUUID()}`;
+      const layer: ImageLayerNode = {
+        id,
+        name: `Image layer ${container.layers.filter(item => item.type === 'image').length + 1}`,
+        semanticRole: 'image',
+        type: 'image',
+        url: '',
+        status: 'empty',
+        x: 60,
+        y: 220,
+        width: 960,
+        height: 960,
+        rotation: 0,
+        opacity: 1,
+        isLocked: false,
+        isVisible: true,
+        zIndex: 0,
+        borderRadius: 0,
+        crop: { scale: 1, offsetX: 0, offsetY: 0 },
+      };
+      const selectedIndex = container.layers.findIndex(item => item.id === state.selectedLayerId);
+      container.layers.splice(selectedIndex < 0 ? 0 : selectedIndex, 0, layer);
+      state.selectedLayerId = id;
+      state.selectedLayerIds = [id];
+      state.editorMode = 'select';
+      save();
+    }),
+
     addShapeLayer: (
       shapeType = 'rectangle',
       fill = '#0A84FF',
@@ -3374,7 +3596,10 @@ export const useCarouselStore = create<CarouselState>()(
       if (container) {
         pushHistorySnapshot(get(), state, 'REMOVE_LAYER');
         container.layers = container.layers.filter(l => l.id !== layerId);
-        if (state.selectedLayerId === layerId) state.selectedLayerId = null;
+        if (state.selectedLayerId === layerId) {
+          state.selectedLayerId = null;
+          if (state.editorMode === 'crop-image') state.editorMode = 'select';
+        }
         if (state.editingTextId === layerId) state.editingTextId = null;
         save();
       }
@@ -3432,7 +3657,76 @@ export const useCarouselStore = create<CarouselState>()(
 
     setApiKey: (provider, key) => set((state) => {
       state.settings.apiKeys[provider] = key;
-    })
+    }),
+
+    loadAISettings: () => {
+      if (typeof window === 'undefined') return;
+      try {
+        const saved = JSON.parse(localStorage.getItem('dara-ai-settings-v1') || '{}');
+        set(state => {
+          state.settings.routing.copy = isCopyModel(saved.routing?.copy) ? saved.routing.copy : DEFAULT_AI_ROUTING.copy;
+          state.settings.routing.review = isCopyModel(saved.routing?.review) ? saved.routing.review : DEFAULT_AI_ROUTING.review;
+          state.settings.routing.prompt = isDirectionModel(saved.routing?.prompt) ? saved.routing.prompt : DEFAULT_AI_ROUTING.prompt;
+          state.settings.routing.image = isImageModel(saved.routing?.image) ? saved.routing.image : DEFAULT_AI_ROUTING.image;
+          state.settings.instructions.copy = typeof saved.instructions?.copy === 'string' ? saved.instructions.copy.slice(0, 20000) : DEFAULT_MASTER_INSTRUCTIONS.copy;
+          state.settings.instructions.review = typeof saved.instructions?.review === 'string' ? saved.instructions.review.slice(0, 20000) : DEFAULT_MASTER_INSTRUCTIONS.review;
+          const legacyVisualPrompt = typeof saved.instructions?.image === 'string' ? saved.instructions.image.slice(0, 20000) : '';
+          state.settings.instructions.imageCover = typeof saved.instructions?.imageCover === 'string' ? saved.instructions.imageCover.slice(0, 20000) : legacyVisualPrompt || DEFAULT_MASTER_INSTRUCTIONS.imageCover;
+          state.settings.instructions.imageContent = typeof saved.instructions?.imageContent === 'string' ? saved.instructions.imageContent.slice(0, 20000) : legacyVisualPrompt || DEFAULT_MASTER_INSTRUCTIONS.imageContent;
+          state.settings.instructions.imageCta = typeof saved.instructions?.imageCta === 'string' ? saved.instructions.imageCta.slice(0, 20000) : legacyVisualPrompt || DEFAULT_MASTER_INSTRUCTIONS.imageCta;
+          state.settings.creativeDirector = {
+            enabled: typeof saved.creativeDirector?.enabled === 'boolean' ? saved.creativeDirector.enabled : DEFAULT_CREATIVE_DIRECTOR.enabled,
+            rules: {
+              global: typeof saved.creativeDirector?.rules?.global === 'string' ? saved.creativeDirector.rules.global.slice(0, 20000) : DEFAULT_CREATIVE_DIRECTOR.rules.global,
+              cover: typeof saved.creativeDirector?.rules?.cover === 'string' ? saved.creativeDirector.rules.cover.slice(0, 20000) : DEFAULT_CREATIVE_DIRECTOR.rules.cover,
+              content: typeof saved.creativeDirector?.rules?.content === 'string' ? saved.creativeDirector.rules.content.slice(0, 20000) : DEFAULT_CREATIVE_DIRECTOR.rules.content,
+              cta: typeof saved.creativeDirector?.rules?.cta === 'string' ? saved.creativeDirector.rules.cta.slice(0, 20000) : DEFAULT_CREATIVE_DIRECTOR.rules.cta,
+            },
+          };
+        });
+      } catch (error) {
+        console.warn('Could not load AI settings:', error);
+      }
+    },
+
+    updateAISettings: (routing, instructions) => {
+      const next = {
+        routing: {
+          copy: isCopyModel(routing.copy) ? routing.copy : DEFAULT_AI_ROUTING.copy,
+          review: isCopyModel(routing.review) ? routing.review : DEFAULT_AI_ROUTING.review,
+          prompt: isDirectionModel(routing.prompt) ? routing.prompt : DEFAULT_AI_ROUTING.prompt,
+          image: isImageModel(routing.image) ? routing.image : DEFAULT_AI_ROUTING.image,
+        },
+        instructions: {
+          copy: instructions.copy.slice(0, 20000),
+          review: instructions.review.slice(0, 20000),
+          imageCover: instructions.imageCover.slice(0, 20000),
+          imageContent: instructions.imageContent.slice(0, 20000),
+          imageCta: instructions.imageCta.slice(0, 20000),
+        }
+      };
+      const saved = JSON.parse(localStorage.getItem('dara-ai-settings-v1') || '{}');
+      localStorage.setItem('dara-ai-settings-v1', JSON.stringify({ ...saved, ...next }));
+      set(state => {
+        state.settings.routing = next.routing;
+        state.settings.instructions = next.instructions;
+      });
+    },
+
+    updateCreativeDirectorSettings: (creativeDirector) => {
+      const next = {
+        enabled: creativeDirector.enabled,
+        rules: {
+          global: creativeDirector.rules.global.slice(0, 20000),
+          cover: creativeDirector.rules.cover.slice(0, 20000),
+          content: creativeDirector.rules.content.slice(0, 20000),
+          cta: creativeDirector.rules.cta.slice(0, 20000),
+        },
+      };
+      const saved = JSON.parse(localStorage.getItem('dara-ai-settings-v1') || '{}');
+      localStorage.setItem('dara-ai-settings-v1', JSON.stringify({ ...saved, creativeDirector: next }));
+      set(state => { state.settings.creativeDirector = next; });
+    }
   }))
 );
 
@@ -3453,6 +3747,7 @@ function pushHistorySnapshot(currentState: CarouselState, draftState: any, descr
   draftState.history.push(snapshot);
   if (draftState.history.length > 50) draftState.history.shift();
   draftState.historyIndex = draftState.history.length - 1;
+
 }
 
 function persistActiveDocument(doc?: CarouselDocument) {
@@ -3482,4 +3777,3 @@ function getActiveLayerContainerAndSave(state: any): { container: { layers: Laye
     }
   };
 }
-
