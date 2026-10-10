@@ -89,6 +89,9 @@ button { transition: background-color 150ms ease, color 150ms ease, opacity 150m
 .document-heading input { width: 100%; text-align: center; background: transparent; }
 .document-subtitle { display: flex; align-items: center; gap: 7px; font-size: 10px; color: #93939a; white-space: nowrap; }
 .document-subtitle a { display: inline-flex; align-items: center; gap: 3px; color: #73b4ff; }
+.document-subtitle .template-save-status.saved, .save-template-action.saved { color: #79d6a2; }
+.document-subtitle .template-save-status.failed, .save-template-action.failed { color: #ff7777; }
+.document-subtitle .template-save-status.saving { color: #73b4ff; }
 .subtitle-dot { width: 3px; height: 3px; border-radius: 50%; background: #74747c; }
 .mobile-navigation-toggle { display: none; }
 .mobile-navigation { position: absolute; right: 16px; top: 60px; width: 220px; border: 1px solid #ffffff16; border-radius: 8px; padding: 6px; background: #303034; box-shadow: 0 12px 40px #0006; }

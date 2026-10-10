@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
-import { LayoutGrid, Layers, Settings2, ChevronLeft, RotateCcw, RotateCw, Plus, Download, LayoutTemplate, Menu, X, Check, Save, Link2 } from 'lucide-react';
+import { LayoutGrid, Layers, Settings2, ChevronLeft, RotateCcw, RotateCw, Plus, Download, LayoutTemplate, Menu, X, Check, Save, Link2, Loader2 } from 'lucide-react';
 import { WorkspaceMenu, useWorkspace } from './WorkspaceGate';
 import { hasBrandLogoLayers } from '../lib/brandResolution';
 
@@ -14,6 +14,8 @@ interface NavigationHeaderProps {
 
 export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModal, onOpenExportModal }: NavigationHeaderProps) {
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [templateSaveStatus, setTemplateSaveStatus] = React.useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
+  const [templateSaveError, setTemplateSaveError] = React.useState('');
   const state = useCarouselStore();
   const workspace = useWorkspace();
   const activeDoc = state.documents.find(doc => doc.id === state.activeDocumentId);
@@ -22,6 +24,28 @@ export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModa
   React.useEffect(() => {
     setTemplateName(template?.name || '');
   }, [template?.id, template?.name]);
+  React.useEffect(() => {
+    if (state.templateDirty) {
+      setTemplateSaveStatus('idle');
+      setTemplateSaveError('');
+    }
+  }, [state.templateDirty]);
+  const saveTemplateEdits = async () => {
+    setTemplateSaveStatus('saving');
+    setTemplateSaveError('');
+    try {
+      await state.saveTemplateEdits();
+      setTemplateSaveStatus('saved');
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+          ? error.message
+          : 'Check your connection and workspace access, then try again.';
+      setTemplateSaveError(message);
+      setTemplateSaveStatus('failed');
+    }
+  };
   const saveTemplateName = () => {
     if (template && templateName.trim() && templateName.trim() !== template.name) {
       void state.renameTemplate(template.id, templateName);
@@ -80,7 +104,11 @@ export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModa
           <span className="document-subtitle">
             {state.isTemplateEditorMode ? 'Template' : `${activeDoc?.slides.length || 0} slides`}
             <span className="subtitle-dot" />
-            {activeDoc?.sourceUrl && !state.isTemplateEditorMode ? <a href={activeDoc.sourceUrl} target="_blank" rel="noopener noreferrer" title="Open Instagram source"><Link2 size={11} /> Instagram source</a> : state.isTemplateEditorMode && state.templateDirty ? 'Unsaved changes' : workspace ? 'Shared workspace' : 'Saved on this device'}
+            {activeDoc?.sourceUrl && !state.isTemplateEditorMode ? <a href={activeDoc.sourceUrl} target="_blank" rel="noopener noreferrer" title="Open Instagram source"><Link2 size={11} /> Instagram source</a> : state.isTemplateEditorMode ? (
+              <span className={`template-save-status ${templateSaveStatus}`} role="status" title={templateSaveError || undefined}>
+                {templateSaveStatus === 'saving' ? 'Saving…' : templateSaveStatus === 'saved' ? 'Saved' : templateSaveStatus === 'failed' ? 'Save failed' : state.templateDirty ? 'Unsaved changes' : workspace ? 'Shared workspace' : 'Saved on this device'}
+              </span>
+            ) : workspace ? 'Shared workspace' : 'Saved on this device'}
           </span>
           {!state.isTemplateEditorMode && activeDoc?.slides.some(hasBrandLogoLayers) && state.brandProfiles.length > 0 && (
             <label className="brand-preview-picker">
@@ -111,7 +139,9 @@ export function NavigationHeader({ onOpenCreationModal, onOpenSaveAsTemplateModa
               <button className="icon-button" onClick={state.redo} disabled={state.historyIndex >= state.history.length - 1} title="Redo (Cmd+Shift+Z)" aria-label="Redo"><RotateCw size={17} /></button>
             </div>
             {state.isTemplateEditorMode ? (
-              <button className="icon-button save-template-action" onClick={() => state.saveTemplateEdits()} title="Save template" aria-label="Save template"><Save size={18} /></button>
+              <button className={`icon-button save-template-action ${templateSaveStatus}`} onClick={() => void saveTemplateEdits()} disabled={templateSaveStatus === 'saving'} title={templateSaveStatus === 'saved' ? 'Template saved' : templateSaveStatus === 'failed' ? `Save failed: ${templateSaveError}` : 'Save template'} aria-label={templateSaveStatus === 'saved' ? 'Template saved' : templateSaveStatus === 'failed' ? `Save failed: ${templateSaveError}` : 'Save template'}>
+                {templateSaveStatus === 'saving' ? <Loader2 className="animate-spin" size={18} /> : templateSaveStatus === 'saved' ? <Check size={18} /> : <Save size={18} />}
+              </button>
             ) : onOpenSaveAsTemplateModal && (
               <button className="icon-button save-template-action" onClick={() => onOpenSaveAsTemplateModal('full_carousel')} title="Save as template" aria-label="Save as template"><LayoutTemplate size={18} /></button>
             )}

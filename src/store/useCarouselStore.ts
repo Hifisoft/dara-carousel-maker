@@ -1895,15 +1895,25 @@ export const useCarouselStore = create<CarouselState>()(
       if (!tpl) return;
 
       // Clone synchronously before any await — Immer objects are read-only
+      const templateSnapshot = JSON.parse(JSON.stringify(tpl)) as CarouselTemplate;
       const updatedTpl = {
-        ...JSON.parse(JSON.stringify(tpl)),
-        version: (tpl.version || 1) + 1,
+        ...templateSnapshot,
+        version: (templateSnapshot.version || 1) + 1,
         updatedAt: new Date().toISOString(),
       };
 
       await saveTemplateToIDB(updatedTpl);
       set((draft) => {
-        draft.templateDirty = false;
+        const current = draft.templates.find(template => template.id === updatedTpl.id);
+        if (!current) return;
+        const unchangedDuringSave = JSON.stringify({
+          ...JSON.parse(JSON.stringify(current)),
+          version: templateSnapshot.version,
+          updatedAt: templateSnapshot.updatedAt,
+        }) === JSON.stringify(templateSnapshot);
+        current.version = updatedTpl.version;
+        current.updatedAt = updatedTpl.updatedAt;
+        if (unchangedDuringSave) draft.templateDirty = false;
       });
     },
 

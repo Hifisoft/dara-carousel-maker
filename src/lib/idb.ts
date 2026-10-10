@@ -96,9 +96,19 @@ interface DaraDB extends DBSchema {
 const DB_NAME = 'dara-v2-db';
 const BRAND_DB_NAME = 'dara-brand-profiles-db';
 
+function persistenceErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return `${fallback} ${error.message}`;
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    const code = 'code' in error && typeof error.code === 'string' ? ` (${error.code})` : '';
+    return `${fallback} ${error.message}${code}`;
+  }
+  return fallback;
+}
+
 let dbPromise: Promise<IDBPDatabase<DaraDB>> | null = null;
 let brandDbPromise: Promise<IDBPDatabase<BrandDB>> | null = null;
 let activeDb: IDBPDatabase<DaraDB> | null = null;
+const templateSaveQueues = new Map<string, Promise<void>>();
 
 interface BrandDB extends DBSchema {
   brandProfiles: {
@@ -235,19 +245,29 @@ export async function saveTemplateToIDB(template: CarouselTemplate): Promise<voi
   // Must clone synchronously BEFORE the first await — Immer revokes proxies after produce() yields
   const plain: CarouselTemplate = JSON.parse(JSON.stringify(template));
   const orgId = getCloudWorkspace();
-  if (orgId) {
-    try {
-      await cloudSaveTemplate(await embedTemplateAssets(plain), orgId);
-    } catch (error) {
-      window.dispatchEvent(new CustomEvent('dara-cloud-error', { detail: error instanceof Error ? error.message : 'Template save failed.' }));
-      throw error;
+  const queueKey = `${orgId || 'local'}:${plain.id}`;
+  const previous = templateSaveQueues.get(queueKey) || Promise.resolve();
+  const next = previous.catch(() => undefined).then(async () => {
+    if (orgId) {
+      try {
+        await cloudSaveTemplate(await embedTemplateAssets(plain), orgId);
+      } catch (error) {
+        window.dispatchEvent(new CustomEvent('dara-cloud-error', { detail: persistenceErrorMessage(error, 'Template save failed.') }));
+        throw error;
+      }
+      return;
     }
-    return;
+    const db = await getDB();
+    const embedded = await embedTemplateAssets(plain);
+    const record = { ...embedded, updatedAt: new Date().toISOString() };
+    await db.put('templates', record);
+  });
+  templateSaveQueues.set(queueKey, next);
+  try {
+    await next;
+  } finally {
+    if (templateSaveQueues.get(queueKey) === next) templateSaveQueues.delete(queueKey);
   }
-  const db = await getDB();
-  const embedded = await embedTemplateAssets(plain);
-  const record = { ...embedded, updatedAt: new Date().toISOString() };
-  await db.put('templates', record);
 }
 
 export async function getTemplateFromIDB(id: string): Promise<CarouselTemplate | undefined> {

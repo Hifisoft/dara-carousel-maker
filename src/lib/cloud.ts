@@ -11,6 +11,7 @@ let workspaceId: string | null = null;
 let userId: string | null = null;
 const documentVersions = new Map<string, number>();
 const writeQueues = new Map<string, Promise<void>>();
+const templateWriteQueues = new Map<string, Promise<void>>();
 
 export function getCloudClient(): SupabaseClient {
   if (!url || !key) throw new Error('Cloud workspace is not configured.');
@@ -92,11 +93,22 @@ export async function cloudTemplates(): Promise<CarouselTemplate[]> {
 export async function cloudSaveTemplate(template: CarouselTemplate, orgId: string): Promise<void> {
   if (template.isSystemTemplate) return;
   if (workspaceId !== orgId) throw new Error('Workspace changed before save completed.');
-  const { error } = await getCloudClient().from('carousel_templates').upsert({
-    organisation_id: orgId, id: template.id, data: { ...template, workspaceId: orgId },
-    updated_at: new Date().toISOString(), last_editor: userId
-  }, { onConflict: 'organisation_id,id' });
-  if (error) throw error;
+  const queueKey = `${orgId}:${template.id}`;
+  const previous = templateWriteQueues.get(queueKey) || Promise.resolve();
+  const next = previous.catch(() => undefined).then(async () => {
+    if (workspaceId !== orgId) throw new Error('Workspace changed before save completed.');
+    const { error } = await getCloudClient().from('carousel_templates').upsert({
+      organisation_id: orgId, id: template.id, data: { ...template, workspaceId: orgId },
+      updated_at: new Date().toISOString(), last_editor: userId
+    }, { onConflict: 'organisation_id,id' });
+    if (error) throw error;
+  });
+  templateWriteQueues.set(queueKey, next);
+  try {
+    await next;
+  } finally {
+    if (templateWriteQueues.get(queueKey) === next) templateWriteQueues.delete(queueKey);
+  }
 }
 
 export async function cloudDeleteTemplate(id: string): Promise<void> {
