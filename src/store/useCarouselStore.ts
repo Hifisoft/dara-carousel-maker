@@ -127,7 +127,7 @@ interface CarouselState {
   loadDocumentsFromStorage: () => Promise<void>;
   resetWorkspace: () => void;
   openDocument: (id: string) => void;
-  createDocument: (title: string, topic: string, slideCount: number, templateId: string, aiCopy?: { title?: string; slides?: Array<{ index: number; segmentRole: string; slide_title?: string; slide_body?: string }> }) => Promise<string>;
+  createDocument: (title: string, topic: string, slideCount: number, templateId: string, aiCopy?: { title?: string; slides?: Array<{ index: number; segmentRole: string; slide_title?: string; slide_body?: string }>; sources?: Array<{ title: string; url: string }> }) => Promise<string>;
 
 
 
@@ -2499,6 +2499,7 @@ export const useCarouselStore = create<CarouselState>()(
         templateRef: { templateId: selectedTpl?.id || templateId, version: selectedTpl?.version || 1, overrides: {} },
         dimensions: { width: 1080, height: 1440, aspectRatio: '4:5' },
         slides,
+        researchSources: aiCopy?.sources?.filter(source => typeof source?.title === 'string' && typeof source?.url === 'string').slice(0, 20),
         globalCreativeDirection: {
           globalRules: 'Clean brand guidelines',
           coverRules: 'Hook focus',

@@ -107,7 +107,7 @@ export function NewCarouselModal({ isOpen, onClose }: NewCarouselModalProps) {
           </div>
           {preview && <div className="creation-preview"><SlidePreview slide={preview} /><p>1080 × 1440 px</p></div>}
         </div>
-        {isGenerating && <div className="operation-message" role="status"><Loader2 size={15} className="animate-spin" />{operation === 'ai' ? 'Writing your carousel...' : 'Creating your draft...'}</div>}
+        {isGenerating && <div className="operation-message" role="status"><Loader2 size={15} className="animate-spin" />{operation === 'ai' ? 'Researching sources and writing your carousel...' : 'Creating your draft...'}</div>}
         {error && <div className="operation-error" role="alert">{error}</div>}
         <div className="dialog-actions">
           <button className="cancel-action" onClick={closeModal} disabled={isGenerating}>Cancel</button>

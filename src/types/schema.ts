@@ -77,6 +77,7 @@ export interface CarouselDocument {
   slides: SlideSceneNode[];
   globalCreativeDirection: CreativeDirectionConfig;
   sourceUrl?: string;
+  researchSources?: Array<{ title: string; url: string }>;
   generatedImages?: GeneratedImageConcept[];
   createdAt: string;
   updatedAt: string;

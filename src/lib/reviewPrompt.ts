@@ -9,11 +9,13 @@ For every carousel, perform a full analysis across these areas:
 - Suggest cleaner, sharper rewrites only when necessary.
 - Keep the tone punchy, minimal, and readable.
 
-2. FACT CHECKING
-- Label every factual claim Accurate, Misleading / needs nuance, False, or Unverified.
-- Explain why weak claims are problematic and provide corrected wording.
-- Watch for overgeneralizations, popular myths, missing context, and backlash risks.
-- Never claim independent verification without evidence. If sources are unavailable, mark the claim Unverified and say what evidence is needed.
+2. INDEPENDENT FACT CHECKING
+- Search the web for every material claim; do not use the carousel itself as evidence.
+- Label each claim Verified, Partly supported, Contradicted, or Unverified.
+- Explain the evidence and cite the source by title and URL; prioritize primary sources, official datasets, original research, and reputable reporting.
+- Explain why weak claims are problematic and offer a corrected version when useful.
+- Watch for overgeneralizations, popular myths, missing context, outdated information, and backlash risks.
+- If sources are unavailable or disagree, say so and mark the claim Unverified or Partly supported. Never invent a citation.
 
 3. VIRALITY AND COMMENT SIMULATION
 - For each slide or claim, simulate realistic skeptical, curious, pushback, and bored comments.
@@ -28,10 +30,10 @@ For every carousel, perform a full analysis across these areas:
 
 Style: Be direct, sharp, and honest. No fluff or over-explaining. Prioritize truth and engagement. Be brutally honest and optimize for impact, not politeness.
 
-Output for EACH slide:
+Output for EACH slide (include every slide and each factual claim):
 [Slide Title]
 Grammar: Clean / Fix + correction
-Fact Check: Accurate / Misleading / False / Unverified + explanation
+Fact Check: Verified / Partly supported / Contradicted / Unverified + explanation and source link(s)
 Comment Simulation: three likely comments
 Notes: what works / what does not
 
