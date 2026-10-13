@@ -2,14 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { DEFAULT_AI_ROUTING, isCopyModel } from '../../../../lib/aiModels';
 import { DEFAULT_REVIEW_PROMPT } from '../../../../lib/reviewPrompt';
 import { requestLunaText } from '../../../../lib/openaiServer';
-import { workspaceServiceStatus } from '../../../../lib/serverAuth';
+import { aiPlatformControl, recordAIUsage, workspaceServiceStatus } from '../../../../lib/serverAuth';
 
 type ReviewSlide = { title: string; text: string };
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now(); let usedModel: string | undefined;
   try {
     const access = await workspaceServiceStatus(request, 'copy');
     if (access !== 200) return NextResponse.json({ error: access === 429 ? 'AI review limit reached. Try again in an hour.' : 'Sign in to an organisation to use AI.' }, { status: access });
+    const control = await aiPlatformControl(request, 'review');
+    if (!control.enabled) { await recordAIUsage({ request, task: 'review', status: 'rejected', startedAt, error: 'AI review is temporarily unavailable.' }); return NextResponse.json({ error: 'AI review is temporarily unavailable. Your carousel content is preserved.' }, { status: 503 }); }
 
     const body = await request.json();
     if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Invalid review request.' }, { status: 400 });
@@ -19,7 +22,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Send 1 to 20 slides with valid text.' }, { status: 400 });
     }
 
-    const model = body.model || DEFAULT_AI_ROUTING.review;
+    const model = control.model || body.model || DEFAULT_AI_ROUTING.review; usedModel = model;
     const requiredKey = model === 'openai:gpt-6-luna' ? 'OPENAI_API_KEY' : 'GEMINI_API_KEY';
     const key = process.env[requiredKey];
     if (!key) return NextResponse.json({ error: `Content review needs a server-side ${requiredKey}.` }, { status: 503 });
@@ -43,8 +46,10 @@ export async function POST(request: NextRequest) {
       review = data?.candidates?.[0]?.content?.parts?.filter((part: { text?: string }) => typeof part.text === 'string').map((part: { text: string }) => part.text).join('\n').trim();
     }
     if (!review) return NextResponse.json({ error: 'The review model returned no feedback. Please retry.' }, { status: 502 });
+    await recordAIUsage({ request, task: 'review', status: 'succeeded', model, startedAt });
     return NextResponse.json({ review });
   } catch (error) {
+    await recordAIUsage({ request, task: 'review', status: 'failed', model: usedModel, startedAt, error: error instanceof Error ? error.message : 'Review failed' });
     console.error('[AI Review]', error);
     if (error instanceof Error && error.name === 'TimeoutError') {
       return NextResponse.json({ error: 'The review model did not respond within 60 seconds. Check the server connection and try again.' }, { status: 504 });

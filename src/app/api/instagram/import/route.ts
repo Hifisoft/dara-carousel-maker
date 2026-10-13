@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { workspaceServiceStatus } from '../../../../lib/serverAuth';
+import { platformFeatureEnabled, workspaceServiceStatus } from '../../../../lib/serverAuth';
 
 type InstagramMedia = {
   id: string;
@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
   try {
     const access = await workspaceServiceStatus(request, 'instagram');
     if (access !== 200) return NextResponse.json({ error: access === 429 ? 'Instagram import limit reached. Try again in an hour.' : 'Sign in to an organisation to import Instagram posts.' }, { status: access });
+    if (!await platformFeatureEnabled('instagramImport')) return NextResponse.json({ error: 'Instagram import is temporarily unavailable. Your carousel content is preserved.' }, { status: 503 });
     const { url } = await request.json();
     if (!isInstagramPostUrl(url)) return NextResponse.json({ error: 'Enter a valid Instagram post URL.' }, { status: 400 });
     const token = process.env.INSTAGRAM_ACCESS_TOKEN;

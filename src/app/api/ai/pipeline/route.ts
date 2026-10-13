@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DEFAULT_AI_ROUTING, isCopyModel } from '../../../../lib/aiModels';
 import { requestLunaText } from '../../../../lib/openaiServer';
-import { workspaceServiceStatus } from '../../../../lib/serverAuth';
+import { aiPlatformControl, recordAIUsage, workspaceServiceStatus } from '../../../../lib/serverAuth';
 
 export interface AIPipelineRequest {
   idempotencyKey: string;
@@ -138,9 +138,13 @@ Always output pure valid JSON only.`;
 // ─── Route Handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
+  let usedModel: string | undefined;
   try {
     const access = await workspaceServiceStatus(req, 'copy');
     if (access !== 200) return NextResponse.json({ error: access === 429 ? 'AI copy limit reached. Try again in an hour.' : 'Sign in to an organisation to use AI.' }, { status: access });
+    const control = await aiPlatformControl(req, 'copy');
+    if (!control.enabled) { await recordAIUsage({ request: req, task: 'copy', status: 'rejected', startedAt, error: 'AI copy is temporarily unavailable.' }); return NextResponse.json({ error: 'AI copy is temporarily unavailable. Your carousel content is preserved.' }, { status: 503 }); }
     const body: AIPipelineRequest = await req.json();
     if (typeof body.topic !== 'string' || !body.topic.trim() || typeof body.idempotencyKey !== 'string') {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
@@ -149,7 +153,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unsupported copy model' }, { status: 400 });
     }
 
-    const model = body.model || DEFAULT_AI_ROUTING.copy;
+    const model = control.model || body.model || DEFAULT_AI_ROUTING.copy;
+    usedModel = model;
     const requiredKey = model === 'openai:gpt-6-luna' ? 'OPENAI_API_KEY' : 'GEMINI_API_KEY';
     if (!process.env[requiredKey]) return NextResponse.json({ error: `AI copy needs a server-side ${requiredKey}. You can still outline the carousel yourself.` }, { status: 503 });
 
@@ -199,9 +204,11 @@ export async function POST(req: NextRequest) {
     }
 
     const response: AIPipelineResponse = { success: true, title, slides };
+    await recordAIUsage({ request: req, task: 'copy', status: 'succeeded', model, startedAt });
     return NextResponse.json(response);
 
   } catch (err: any) {
+    await recordAIUsage({ request: req, task: 'copy', status: 'failed', model: usedModel, startedAt, error: err?.message });
     console.error('[AI Pipeline] Fatal route error:', err);
     return NextResponse.json({ error: err.message || 'Pipeline failed' }, { status: 500 });
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DEFAULT_AI_ROUTING, isDirectionModel, isImageModel } from '../../../../lib/aiModels';
-import { workspaceServiceStatus } from '../../../../lib/serverAuth';
+import { aiPlatformControl, recordAIUsage, workspaceServiceStatus } from '../../../../lib/serverAuth';
 import { requestLunaText } from '../../../../lib/openaiServer';
 
 export interface AIImageRequest {
@@ -94,21 +94,28 @@ async function generateImage(prompt: string, model: string): Promise<string> {
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now(); let usedModel: string | undefined;
   try {
     const access = await workspaceServiceStatus(request, 'image');
     if (access !== 200) return NextResponse.json({ error: access === 429 ? 'Image generation limit reached. Try again in an hour.' : 'Sign in to an organisation to use AI.' }, { status: access });
+    const imageControl = await aiPlatformControl(request, 'image');
+    const directionControl = await aiPlatformControl(request, 'visual_direction');
+    if (!imageControl.enabled || !directionControl.enabled) { await recordAIUsage({ request, task: 'image', status: 'rejected', startedAt, error: 'Image generation is temporarily unavailable.' }); return NextResponse.json({ error: 'Image generation is temporarily unavailable. Your carousel content is preserved.' }, { status: 503 }); }
     const body: AIImageRequest = await request.json();
     if (body.model !== undefined && !isImageModel(body.model)) return NextResponse.json({ error: 'Unsupported image model' }, { status: 400 });
     if (body.promptModel !== undefined && !isDirectionModel(body.promptModel)) return NextResponse.json({ error: 'Unsupported visual direction model' }, { status: 400 });
-    const model = body.model || DEFAULT_AI_ROUTING.image;
-    const promptModel = body.promptModel || DEFAULT_AI_ROUTING.prompt;
+    const model = imageControl.model || body.model || DEFAULT_AI_ROUTING.image;
+    const promptModel = directionControl.model || body.promptModel || DEFAULT_AI_ROUTING.prompt;
+    usedModel = model;
     const instructions = typeof body.instructions === 'string' ? body.instructions.slice(0, 20000) : '';
     const optimizedPrompt = await visualDirection(body, promptModel, instructions);
     const imageUrl = await generateImage(optimizedPrompt, model);
+    await recordAIUsage({ request, task: 'image', status: 'succeeded', model, startedAt });
     return NextResponse.json({ success: true, imageUrl, optimizedPrompt, style: body.style || 'Cinematic Photography', model });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Image generation failed.';
     console.error('[AI Image Route]', message);
+    await recordAIUsage({ request, task: 'image', status: 'failed', model: usedModel, startedAt, error: message });
     return NextResponse.json({ error: message }, { status: message.startsWith('Configure ') ? 503 : 502 });
   }
 }
