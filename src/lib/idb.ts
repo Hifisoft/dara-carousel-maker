@@ -48,27 +48,27 @@ async function embedLayerAssets(layer: LayerNode): Promise<LayerNode> {
 }
 
 async function embedTemplateAssets(template: CarouselTemplate): Promise<CarouselTemplate> {
-  // Deep-clone to escape Immer's revoked proxy before async operations
-  const plain: CarouselTemplate = JSON.parse(JSON.stringify(template));
+  // The caller takes a synchronous snapshot before awaiting, so this is already
+  // plain data and does not need another full JSON clone.
   const layouts = await Promise.all(
-    plain.layouts.map(async (layout) => ({
+    template.layouts.map(async (layout) => ({
       ...layout,
       layers: await Promise.all(layout.layers.map(embedLayerAssets)),
     }))
   );
-  return { ...plain, layouts };
+  return { ...template, layouts };
 }
 
 async function embedDocumentAssets(doc: CarouselDocument): Promise<CarouselDocument> {
-  // Deep-clone to escape Immer's revoked proxy before async operations
-  const plain: CarouselDocument = JSON.parse(JSON.stringify(doc));
+  // The caller takes a synchronous snapshot before awaiting, so this is already
+  // plain data and does not need another full JSON clone.
   const slides = await Promise.all(
-    plain.slides.map(async (slide) => ({
+    doc.slides.map(async (slide) => ({
       ...slide,
       layers: await Promise.all(slide.layers.map(embedLayerAssets)),
     }))
   );
-  return { ...plain, slides };
+  return { ...doc, slides };
 }
 
 interface DaraDB extends DBSchema {

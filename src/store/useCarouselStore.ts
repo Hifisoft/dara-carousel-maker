@@ -3763,8 +3763,9 @@ function pushHistorySnapshot(currentState: CarouselState, draftState: any, descr
 
 function persistActiveDocument(doc?: CarouselDocument) {
   if (!doc) return;
-  const plainDoc = JSON.parse(JSON.stringify(doc)) as CarouselDocument;
-  saveDocumentToIDB(plainDoc).catch(err => console.error('Failed to persist to IndexedDB:', err));
+  // saveDocumentToIDB snapshots synchronously before its first await, which is
+  // safe for Immer drafts. Avoid serializing the entire image-heavy document twice.
+  saveDocumentToIDB(doc).catch(err => console.error('Failed to persist to IndexedDB:', err));
 }
 
 function getActiveLayerContainerAndSave(state: any): { container: { layers: LayerNode[]; backgroundColor?: string } | null; save: () => void } {

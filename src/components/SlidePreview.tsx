@@ -20,7 +20,7 @@ interface SlidePreviewProps {
   brandProfile?: BrandProfile | null;
 }
 
-export function SlidePreview({ slide, className = '', brandProfile }: SlidePreviewProps) {
+export const SlidePreview = React.memo(function SlidePreview({ slide, className = '', brandProfile }: SlidePreviewProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
   useEffect(() => {
@@ -57,7 +57,7 @@ export function SlidePreview({ slide, className = '', brandProfile }: SlidePrevi
           if (layer.type === 'image' || layer.type === 'image-slot' || layer.type === 'logo') {
             const src = layer.type === 'image-slot' ? layer.assignedMediaUrl || layer.url || layer.fallbackUrl
               : layer.type === 'image' ? layer.localPreviewUrl || layer.url : layer.url;
-            return src ? <img key={layer.id} src={src} alt="" draggable={false} style={{ ...style, objectFit: layer.type === 'logo' || layer.type === 'image-slot' && layer.fit === 'contain' ? 'contain' : 'cover',
+            return src ? <img key={layer.id} src={src} alt="" loading="lazy" decoding="async" draggable={false} style={{ ...style, objectFit: layer.type === 'logo' || layer.type === 'image-slot' && layer.fit === 'contain' ? 'contain' : 'cover',
               objectPosition: layer.type === 'image-slot' ? `${(layer.focalPoint?.x ?? 0.5) * 100}% ${(layer.focalPoint?.y ?? 0.5) * 100}%` : 'center',
               borderRadius: 'borderRadius' in layer ? layer.borderRadius : 0,
             }} /> : null;
@@ -67,4 +67,4 @@ export function SlidePreview({ slide, className = '', brandProfile }: SlidePrevi
       </div>
     </div>
   );
-}
+});

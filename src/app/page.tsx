@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useCarouselStore } from '../store/useCarouselStore';
 import { NavigationHeader } from '../components/NavigationHeader';
-import { NewCarouselModal } from '../components/NewCarouselModal';
 import dynamic from 'next/dynamic';
 import {
   Search, Trash2, LayoutGrid, Plus, Sparkles, Layers,
@@ -16,13 +15,14 @@ const KonvaCanvas = dynamic(
   () => import('../components/KonvaCanvas').then((mod) => mod.KonvaCanvas),
   { ssr: false }
 );
-import { InspectorPanel } from '../components/InspectorPanel';
-import { SaveAsTemplateModal } from '../components/SaveAsTemplateModal';
-import { ExportModal } from '../components/ExportModal';
-import { SlidePreview } from '../components/SlidePreview';
-import { AISettingsPanel } from '../components/AISettingsPanel';
+const NewCarouselModal = dynamic(() => import('../components/NewCarouselModal').then(mod => mod.NewCarouselModal), { ssr: false });
+const InspectorPanel = dynamic(() => import('../components/InspectorPanel').then(mod => mod.InspectorPanel), { ssr: false });
+const SaveAsTemplateModal = dynamic(() => import('../components/SaveAsTemplateModal').then(mod => mod.SaveAsTemplateModal), { ssr: false });
+const ExportModal = dynamic(() => import('../components/ExportModal').then(mod => mod.ExportModal), { ssr: false });
+const SlidePreview = dynamic(() => import('../components/SlidePreview').then(mod => mod.SlidePreview), { ssr: false });
+const AISettingsPanel = dynamic(() => import('../components/AISettingsPanel').then(mod => mod.AISettingsPanel), { ssr: false });
 import { WorkspaceGate } from '../components/WorkspaceGate';
-import { BrandProfilesPanel } from '../components/BrandProfilesPanel';
+const BrandProfilesPanel = dynamic(() => import('../components/BrandProfilesPanel').then(mod => mod.BrandProfilesPanel), { ssr: false });
 import { getAllTemplatesFromIDB, saveTemplateToIDB } from '../lib/idb';
 import type { CarouselTemplate } from '../types/schema';
 
@@ -100,6 +100,7 @@ function AppMain() {
   const toggleSampleContentPreview = useCarouselStore((state) => state.toggleSampleContentPreview);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [hasOpenedCreationModal, setHasOpenedCreationModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState('updated');
   const [templateFilter, setTemplateFilter] = useState('all');
@@ -123,8 +124,10 @@ function AppMain() {
   const [newTemplateSourceId, setNewTemplateSourceId] = useState<string>('');
 
   const [isSaveAsTemplateModalOpen, setIsSaveAsTemplateModalOpen] = useState(false);
+  const [hasOpenedSaveTemplateModal, setHasOpenedSaveTemplateModal] = useState(false);
   const [saveAsTemplateModalMode, setSaveAsTemplateModalMode] = useState<'full_carousel' | 'single_slide'>('full_carousel');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [hasOpenedExportModal, setHasOpenedExportModal] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [generatingSlideId, setGeneratingSlideId] = useState<string | null>(null);
   const [mobileEditorTab, setMobileEditorTab] = useState<'canvas' | 'inspector'>('canvas');
@@ -198,11 +201,14 @@ function AppMain() {
     }
   };
 
-  const filteredDocs = documents.filter(
-    (doc) => (templateFilter === 'all' || (doc.templateRef.templateId === 'bbc' ? 'tpl-bbc' : doc.templateRef.templateId) === templateFilter) && (
-      doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.topic.toLowerCase().includes(searchQuery.toLowerCase()))
-  ).sort((a, b) => sortOrder === 'title' ? a.title.localeCompare(b.title) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const filteredDocs = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    return documents.filter(doc =>
+      (templateFilter === 'all' || (doc.templateRef.templateId === 'bbc' ? 'tpl-bbc' : doc.templateRef.templateId) === templateFilter) &&
+      (!normalizedQuery || doc.title.toLowerCase().includes(normalizedQuery) || doc.topic.toLowerCase().includes(normalizedQuery))
+    ).sort((a, b) => sortOrder === 'title' ? a.title.localeCompare(b.title) : Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  }, [documents, searchQuery, sortOrder, templateFilter]);
+  const templateNames = useMemo(() => new Map(templates.map(template => [template.id, template.name])), [templates]);
 
   // Keyboard shortcut listener for Z-order, grouping, duplication, deletion & slide reordering
   useEffect(() => {
@@ -337,12 +343,13 @@ function AppMain() {
     <div className="studio-app h-screen max-h-screen w-screen overflow-hidden bg-workspace text-white flex flex-col select-none">
 
       <NavigationHeader
-        onOpenCreationModal={() => setIsModalOpen(true)}
+        onOpenCreationModal={() => { setHasOpenedCreationModal(true); setIsModalOpen(true); }}
         onOpenSaveAsTemplateModal={(m) => {
           setSaveAsTemplateModalMode(m);
+          setHasOpenedSaveTemplateModal(true);
           setIsSaveAsTemplateModalOpen(true);
         }}
-        onOpenExportModal={() => setIsExportModalOpen(true)}
+        onOpenExportModal={() => { setHasOpenedExportModal(true); setIsExportModalOpen(true); }}
       />
 
       {/* Hidden File Input for Native Image Upload */}
@@ -388,7 +395,7 @@ function AppMain() {
                     </div>
                     <div className="project-info">
                       <h3>{doc.title}</h3>
-                      <p><span>{doc.slides.length} {doc.slides.length === 1 ? 'slide' : 'slides'}</span><span className="subtitle-dot" /><span>{templates.find(item => item.id === (doc.templateRef.templateId === 'bbc' ? 'tpl-bbc' : doc.templateRef.templateId))?.name || 'Unknown template'}</span><span className="subtitle-dot" /><time dateTime={doc.updatedAt}>{new Date(doc.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}</time></p>
+                    <p><span>{doc.slides.length} {doc.slides.length === 1 ? 'slide' : 'slides'}</span><span className="subtitle-dot" /><span>{templateNames.get(doc.templateRef.templateId === 'bbc' ? 'tpl-bbc' : doc.templateRef.templateId) || 'Unknown template'}</span><span className="subtitle-dot" /><time dateTime={doc.updatedAt}>{new Date(doc.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}</time></p>
                     </div>
                   </button>
                   <button className="project-delete" onClick={() => deleteDocument(doc.id)} title="Delete carousel" aria-label={`Delete ${doc.title}`}><Trash2 size={13} /></button>
@@ -399,7 +406,7 @@ function AppMain() {
             <div className="library-empty">
               <LayoutGrid />
               <h2>{searchQuery || templateFilter !== 'all' ? 'No matching carousels' : 'Your next story starts here.'}</h2>
-              {searchQuery || templateFilter !== 'all' ? <button className="secondary-button" onClick={() => { setSearchQuery(''); setTemplateFilter('all'); }}>Clear filters</button> : <button className="primary-button" onClick={() => setIsModalOpen(true)}><Plus size={16} />New carousel</button>}
+              {searchQuery || templateFilter !== 'all' ? <button className="secondary-button" onClick={() => { setSearchQuery(''); setTemplateFilter('all'); }}>Clear filters</button> : <button className="primary-button" onClick={() => { setHasOpenedCreationModal(true); setIsModalOpen(true); }}><Plus size={16} />New carousel</button>}
             </div>
           )}
         </main>
@@ -853,6 +860,7 @@ function AppMain() {
                     className="px-3 py-1.5 bg-accent-blue/20 hover:bg-accent-blue/30 border border-accent-blue/40 rounded text-xs font-semibold text-accent-blue flex items-center gap-1.5 transition-colors"
                     onClick={() => {
                       setSaveAsTemplateModalMode('full_carousel');
+                      setHasOpenedSaveTemplateModal(true);
                       setIsSaveAsTemplateModalOpen(true);
                     }}
                   >
@@ -1028,7 +1036,7 @@ function AppMain() {
 
       {currentView === 'settings' && <AISettingsPanel />}
 
-      <NewCarouselModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      {hasOpenedCreationModal && <NewCarouselModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />}
 
       {/* NEW TEMPLATE CREATION MODAL */}
       {isNewTemplateModalOpen && (
@@ -1225,17 +1233,17 @@ function AppMain() {
       )}
 
       {/* SAVE AS TEMPLATE MODAL */}
-      <SaveAsTemplateModal
+      {hasOpenedSaveTemplateModal && <SaveAsTemplateModal
         isOpen={isSaveAsTemplateModalOpen}
         onClose={() => setIsSaveAsTemplateModalOpen(false)}
         mode={saveAsTemplateModalMode}
-      />
+      />}
 
       {/* EXPORT CAROUSEL MODAL */}
-      <ExportModal
+      {hasOpenedExportModal && <ExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-      />
+      />}
     </div>
   );
 }

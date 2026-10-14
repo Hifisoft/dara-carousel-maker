@@ -36,10 +36,25 @@ export async function GET(request: NextRequest) {
         db.from('ai_usage_events').select('user_id,task_type,status,created_at').order('created_at', { ascending: false }).limit(10000),
       ]);
       if (listed.error) throw listed.error;
+      const organisationsById = new Map((orgs.data || []).map(org => [org.id, org]));
+      const membershipsByUser = new Map<string, Array<any>>();
+      for (const membership of members.data || []) {
+        const rows = membershipsByUser.get(membership.user_id) || [];
+        rows.push({ ...membership, organisation: organisationsById.get(membership.organisation_id) || null });
+        membershipsByUser.set(membership.user_id, rows);
+      }
+      const usageByUser = new Map<string, { total: number; failures: number }>();
+      for (const event of usage.data || []) {
+        if (!event.user_id) continue;
+        const counts = usageByUser.get(event.user_id) || { total: 0, failures: 0 };
+        counts.total++;
+        if (event.status === 'failed') counts.failures++;
+        usageByUser.set(event.user_id, counts);
+      }
       const results = (listed.data?.users || []).map(user => {
-        const userOrgs = (members.data || []).filter(m => m.user_id === user.id).map(m => ({ ...m, organisation: orgs.data?.find(o => o.id === m.organisation_id) || null }));
-        const events = (usage.data || []).filter(event => event.user_id === user.id);
-        return { id: user.id, email: user.email, created_at: user.created_at, last_sign_in_at: user.last_sign_in_at, banned_until: user.banned_until, organisations: userOrgs, usage: events.length, ai_failures: events.filter(event => event.status === 'failed').length };
+        const userOrgs = membershipsByUser.get(user.id) || [];
+        const counts = usageByUser.get(user.id) || { total: 0, failures: 0 };
+        return { id: user.id, email: user.email, created_at: user.created_at, last_sign_in_at: user.last_sign_in_at, banned_until: user.banned_until, organisations: userOrgs, usage: counts.total, ai_failures: counts.failures };
       }).filter(user => !q || `${user.id} ${user.email || ''} ${user.organisations.map(o => o.organisation?.name || '').join(' ')}`.toLowerCase().includes(q));
       return NextResponse.json({ users: results });
     }
