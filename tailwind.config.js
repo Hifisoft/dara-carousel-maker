@@ -8,24 +8,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        workspace: "#0A0C10",
+        workspace: "#19191b",
         surface: {
-          DEFAULT: "#12151B",
-          elevated: "#1B1E24",
-          hover: "#242830"
+          DEFAULT: "#242426",
+          elevated: "#303033",
+          hover: "#3b3b3e"
         },
         border: {
-          subtle: "#21242C",
-          DEFAULT: "#2A2E39",
-          focus: "#2A84FF"
+          subtle: "#333336",
+          DEFAULT: "#414145",
+          default: "#414145",
+          focus: "#0A84FF"
         },
         text: {
-          primary: "#F0F6FC",
-          secondary: "#8B949E",
-          tertiary: "#5B636D"
+          primary: "#f5f5f7",
+          secondary: "#a6a6ad",
+          tertiary: "#82828a"
         },
         accent: {
-          blue: "#2A84FF",
+          blue: "#0A84FF",
           green: "#2ECA71",
           purple: "#A65EFE",
           red: "#FF4D4D",
@@ -34,7 +35,7 @@ export default {
         }
       },
       fontFamily: {
-        sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
+        sans: ["-apple-system", "BlinkMacSystemFont", "SF Pro Text", "sans-serif"],
         mono: ["Fira Code", "JetBrains Mono", "monospace"],
         grotesk: ["Space Grotesk", "sans-serif"],
         playfair: ["Playfair Display", "serif"],

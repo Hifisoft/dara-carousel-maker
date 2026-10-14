@@ -3,42 +3,96 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Stage, Layer, Rect, Ellipse, Line, Text, Image as KonvaImage, Transformer, Group, Circle } from 'react-konva';
 import { useCarouselStore } from '../store/useCarouselStore';
-import { LayerNode, TextLayerNode, ImageLayerNode, ImageSlotLayerNode, ShapeLayerNode, ShapeFill, Point2D } from '../types/schema';
+import { LayerNode, TextLayerNode, ImageLayerNode, ImageSlotLayerNode, ShapeLayerNode, ShapeFill, Point2D, LogoLayerNode } from '../types/schema';
 import {
   resolveLineHeightMultiplier, resolveLetterSpacingPx, transformTextCase,
   calculateVerticalAlignOffset
 } from '../lib/textEngine';
 import { hexOrColorToRgba } from '../lib/colorUtils';
 import { resolveCssFontFamily, loadFont } from '../lib/fontLoader';
+import { adjustedImage, imageCrop, roundedImagePath } from '../lib/imageRendering';
+import { resolveLayerForBrand } from '../lib/brandResolution';
+import { Minus, Plus, Maximize2 } from 'lucide-react';
 
-function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
+function ImageNode({ layer, isSelected, cropMode, onSelect, onEnterCrop, onCropChange, onDragMove, onDragEnd, onTransformEnd }: {
   layer: ImageLayerNode;
+  isSelected: boolean;
+  cropMode: boolean;
   onSelect: () => void;
+  onEnterCrop: () => void;
+  onCropChange: (crop: NonNullable<ImageLayerNode['crop']>) => void;
   onDragMove: (e: any) => void;
   onDragEnd: (e: any) => void;
   onTransformEnd: (e: any) => void;
 }) {
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const cropPreviewRef = useRef<any>(null);
 
   useEffect(() => {
     const src = layer.localPreviewUrl || layer.url;
-    if (!src) return;
+    if (!src) {
+      setImageObj(null);
+      setLoadFailed(false);
+      return;
+    }
 
+    setImageObj(null);
     setLoadFailed(false);
     const img = new window.Image();
+    let cancelled = false;
     // Only set crossOrigin for external URLs — data URLs don't need it
     // and setting it can actually block data URL loading in some browsers
     if (!src.startsWith('data:')) {
       img.crossOrigin = 'Anonymous';
     }
-    img.onload = () => setImageObj(img);
+    img.onload = () => { if (!cancelled) setImageObj(img); };
     img.onerror = () => {
-      setImageObj(null);
-      setLoadFailed(true);
+      if (!cancelled) {
+        setImageObj(null);
+        setLoadFailed(true);
+      }
     };
     img.src = src;
+    return () => { cancelled = true; };
   }, [layer.url, layer.localPreviewUrl]);
+
+  const displayImage = React.useMemo(
+    () => imageObj ? adjustedImage(imageObj, layer.adjustments) : null,
+    [imageObj, layer.adjustments],
+  );
+  const crop = displayImage ? imageCrop(layer, displayImage) : null;
+  const sourceWidth = displayImage && displayImage instanceof HTMLImageElement ? displayImage.naturalWidth : displayImage?.width || 0;
+  const sourceHeight = displayImage && displayImage instanceof HTMLImageElement ? displayImage.naturalHeight : displayImage?.height || 0;
+  const imageScale = crop ? layer.width / crop.width : 1;
+  const fullWidth = sourceWidth * imageScale;
+  const fullHeight = sourceHeight * imageScale;
+  const imageX = crop ? -crop.x * imageScale : 0;
+  const imageY = crop ? -crop.y * imageScale : 0;
+
+  const commitImagePosition = (x: number, y: number) => {
+    if (!crop) return;
+    const availableX = sourceWidth - crop.width;
+    const availableY = sourceHeight - crop.height;
+    const offsetX = availableX > 0 ? Math.max(-1, Math.min(1, (-x / imageScale / availableX) * 2 - 1)) : 0;
+    const offsetY = availableY > 0 ? Math.max(-1, Math.min(1, (-y / imageScale / availableY) * 2 - 1)) : 0;
+    onCropChange({ scale: layer.crop?.scale || 1, offsetX, offsetY });
+  };
+
+  if (!layer.localPreviewUrl && !layer.url && !loadFailed) {
+    return (
+      <Group id={'node-' + layer.id} x={layer.x} y={layer.y} rotation={layer.rotation}
+        opacity={layer.opacity} draggable={!layer.isLocked} visible={layer.isVisible}
+        onClick={(e) => { e.cancelBubble = true; onSelect(); }}
+        onTap={(e) => { e.cancelBubble = true; onSelect(); }}
+        onDragMove={onDragMove} onDragEnd={onDragEnd} onTransformEnd={onTransformEnd}>
+        <Rect width={layer.width} height={layer.height} fill="rgba(255,255,255,0.001)"
+          stroke={isSelected ? '#0A84FF' : undefined} strokeWidth={isSelected ? 2 : 0} dash={[10, 8]} />
+        {isSelected && <Text text="Empty image layer" width={layer.width} y={layer.height / 2 - 16}
+          align="center" fontSize={22} fill="#8EA8D8" listening={false} />}
+      </Group>
+    );
+  }
 
   // Show visible placeholder when image fails — makes broken images obvious
   if (loadFailed || (!imageObj && !(layer.localPreviewUrl || layer.url))) {
@@ -49,13 +103,13 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
         y={layer.y}
         rotation={layer.rotation}
         opacity={layer.opacity}
-        draggable={!layer.isLocked}
+        draggable={!layer.isLocked && !cropMode}
         visible={layer.isVisible}
         onClick={(e) => { e.cancelBubble = true; onSelect(); }}
         onTap={(e) => { e.cancelBubble = true; onSelect(); }}
-        onDragMove={onDragMove}
-        onDragEnd={onDragEnd}
-        onTransformEnd={onTransformEnd}
+        onDragMove={cropMode ? undefined : onDragMove}
+        onDragEnd={cropMode ? undefined : onDragEnd}
+        onTransformEnd={cropMode ? undefined : onTransformEnd}
       >
         <Rect
           width={layer.width}
@@ -80,16 +134,13 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
   }
 
   return (
-    <KonvaImage
+    <Group
       id={'node-' + layer.id}
       x={layer.x}
       y={layer.y}
-      width={layer.width}
-      height={layer.height}
-      image={imageObj || undefined}
       rotation={layer.rotation}
       opacity={layer.opacity}
-      draggable={!layer.isLocked}
+      draggable={!layer.isLocked && !cropMode}
       visible={layer.isVisible}
       onClick={(e) => {
         e.cancelBubble = true;
@@ -99,11 +150,95 @@ function ImageNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
         e.cancelBubble = true;
         onSelect();
       }}
-      onDragMove={onDragMove}
-      onDragEnd={onDragEnd}
-      onTransformEnd={onTransformEnd}
-    />
+      onDblClick={(e) => { e.cancelBubble = true; onEnterCrop(); }}
+      onDblTap={(e) => { e.cancelBubble = true; onEnterCrop(); }}
+      onWheel={(e) => {
+        if (!cropMode) return;
+        e.evt.preventDefault();
+        e.cancelBubble = true;
+        const wheelDelta = Math.max(-120, Math.min(120, e.evt.deltaY));
+        const nextScale = Math.max(1, Math.min(3, (layer.crop?.scale || 1) * Math.exp(-wheelDelta * 0.001)));
+        onCropChange({ scale: Number(nextScale.toFixed(3)), offsetX: layer.crop?.offsetX || 0, offsetY: layer.crop?.offsetY || 0 });
+      }}
+      onDragMove={cropMode ? undefined : onDragMove}
+      onDragEnd={cropMode ? undefined : onDragEnd}
+      onTransformEnd={cropMode ? undefined : onTransformEnd}
+    >
+      {cropMode && displayImage && (
+        <KonvaImage ref={cropPreviewRef} x={imageX} y={imageY} width={fullWidth} height={fullHeight}
+          image={displayImage} opacity={0.28} listening={false} />
+      )}
+      <Group clipFunc={(context) => roundedImagePath(context, layer.width, layer.height, layer.borderRadius || 0)}>
+        {cropMode && displayImage ? (
+          <KonvaImage
+            x={imageX}
+            y={imageY}
+            width={fullWidth}
+            height={fullHeight}
+            image={displayImage}
+            draggable
+            onDragMove={(e) => {
+              e.cancelBubble = true;
+              e.target.x(Math.max(layer.width - fullWidth, Math.min(0, e.target.x())));
+              e.target.y(Math.max(layer.height - fullHeight, Math.min(0, e.target.y())));
+              cropPreviewRef.current?.position({ x: e.target.x(), y: e.target.y() });
+              cropPreviewRef.current?.getLayer()?.batchDraw();
+            }}
+            onDragEnd={(e) => {
+              e.cancelBubble = true;
+              commitImagePosition(e.target.x(), e.target.y());
+            }}
+          />
+        ) : (
+          <KonvaImage width={layer.width} height={layer.height} image={displayImage || undefined}
+            crop={crop || undefined} />
+        )}
+      </Group>
+      {cropMode && (
+        <Rect width={layer.width} height={layer.height} cornerRadius={layer.borderRadius || 0}
+          stroke="#0A84FF" strokeWidth={3} dash={[10, 6]} listening={false} />
+      )}
+      {Boolean(layer.stroke?.width) && (
+        <Rect
+          width={layer.width}
+          height={layer.height}
+          cornerRadius={layer.borderRadius || 0}
+          stroke={layer.stroke?.color || '#FFFFFF'}
+          strokeWidth={layer.stroke?.width || 0}
+          listening={false}
+        />
+      )}
+    </Group>
   );
+}
+
+function LogoNode({ layer, onSelect, onDragMove, onDragEnd, onTransformEnd }: {
+  layer: LogoLayerNode;
+  onSelect: () => void;
+  onDragMove: (e: any) => void;
+  onDragEnd: (e: any) => void;
+  onTransformEnd: (e: any) => void;
+}) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    setImage(null);
+    if (!layer.url) return;
+    const loaded = new window.Image();
+    if (!layer.url.startsWith('data:')) loaded.crossOrigin = 'anonymous';
+    loaded.onload = () => setImage(loaded);
+    loaded.src = layer.url;
+  }, [layer.url]);
+  const scale = image ? Math.min(layer.width / image.width, layer.height / image.height) * Math.max(0.05, Math.min(1, layer.scale || 1)) : 1;
+  const width = image ? image.width * scale : layer.width;
+  const height = image ? image.height * scale : layer.height;
+  return <Group id={`node-${layer.id}`} x={layer.x} y={layer.y} width={layer.width} height={layer.height}
+    rotation={layer.rotation} opacity={layer.opacity} draggable={!layer.isLocked} visible={layer.isVisible}
+    onClick={event => { event.cancelBubble = true; onSelect(); }}
+    onTap={event => { event.cancelBubble = true; onSelect(); }}
+    onDragMove={onDragMove} onDragEnd={onDragEnd} onTransformEnd={onTransformEnd}>
+    {image ? <KonvaImage x={(layer.width - width) / 2} y={(layer.height - height) / 2} width={width} height={height} image={image} /> :
+      <Rect width={layer.width} height={layer.height} fill="#202023" stroke="#777780" strokeWidth={1} dash={[6, 4]} listening={false} />}
+  </Group>;
 }
 
 
@@ -303,6 +438,8 @@ export function KonvaCanvas() {
   const setEditorMode = useCarouselStore((state) => state.setEditorMode);
   const activeShapeType = useCarouselStore((state) => state.activeShapeType);
   const addShapeLayer = useCarouselStore((state) => state.addShapeLayer);
+  const brandProfiles = useCarouselStore(state => state.brandProfiles);
+  const previewBrandId = useCarouselStore(state => state.previewBrandId);
 
   const isTemplateEditorMode = useCarouselStore((state) => state.isTemplateEditorMode);
   const getActiveMasterLayout = useCarouselStore((state) => state.getActiveMasterLayout);
@@ -315,6 +452,8 @@ export function KonvaCanvas() {
   const activeLayout = getActiveMasterLayout();
 
   const currentLayers = isTemplateEditorMode ? (activeLayout?.layers || []) : (activeSlide?.layers || []);
+  const previewBrand = brandProfiles.find(profile => profile.id === previewBrandId) || null;
+  const renderLayers = currentLayers.map(layer => isTemplateEditorMode ? layer : resolveLayerForBrand(layer, previewBrand));
   const currentBgColor = isTemplateEditorMode ? (activeLayout?.backgroundColor || '#111111') : (activeSlide?.backgroundColor || '#111111');
 
   const handleUpdateLayer = (layerId: string, patch: Partial<LayerNode>) => {
@@ -325,6 +464,15 @@ export function KonvaCanvas() {
   const trRef = useRef<any>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.4);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia('(pointer: coarse)');
+    const update = () => setIsCoarsePointer(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
 
   // Interactive Shape Drawing State
   const [isDrawing, setIsDrawing] = useState(false);
@@ -342,8 +490,8 @@ export function KonvaCanvas() {
 
     const updateScale = () => {
       const rect = parent.getBoundingClientRect();
-      const paddingX = rect.width < 600 ? 16 : rect.width < 1024 ? 32 : 48;
-      const paddingY = rect.height < 600 ? 16 : rect.height < 900 ? 32 : 48;
+      const paddingX = rect.width < 600 ? 32 : 96;
+      const paddingY = rect.height < 600 ? 104 : 120;
       const availableW = Math.max(100, rect.width - paddingX);
       const availableH = Math.max(100, rect.height - paddingY);
       const s = Math.min(availableW / 1080, availableH / 1440);
@@ -364,6 +512,10 @@ export function KonvaCanvas() {
 
   // Update Transformer selection for single & multi-select
   useEffect(() => {
+    if (editorMode === 'crop-image') {
+      trRef.current?.nodes([]);
+      return;
+    }
     if (selectedLayerIds.length > 0 && trRef.current && stageRef.current) {
       const selectedNodes: any[] = [];
       selectedLayerIds.forEach((id) => {
@@ -375,7 +527,7 @@ export function KonvaCanvas() {
     } else if (trRef.current) {
       trRef.current.nodes([]);
     }
-  }, [selectedLayerIds, activeSlide, activeLayout, isTemplateEditorMode]);
+  }, [selectedLayerIds, activeSlide, activeLayout, isTemplateEditorMode, editorMode]);
 
   if (!isTemplateEditorMode && !activeSlide) return null;
   if (isTemplateEditorMode && !activeLayout) return null;
@@ -547,7 +699,7 @@ export function KonvaCanvas() {
       return;
     }
 
-    if (e.target === stageRef.current) {
+    if (e.target === stageRef.current || e.target.hasName?.('canvas-background')) {
       const stage = stageRef.current;
       const pointer = stage.getPointerPosition();
       if (pointer) {
@@ -618,8 +770,8 @@ export function KonvaCanvas() {
     const parent = viewportRef.current || document.getElementById('canvas-viewport');
     if (parent) {
       const rect = parent.getBoundingClientRect();
-      const paddingX = rect.width < 600 ? 16 : rect.width < 1024 ? 32 : 48;
-      const paddingY = rect.height < 600 ? 16 : rect.height < 900 ? 32 : 48;
+      const paddingX = rect.width < 600 ? 32 : 96;
+      const paddingY = rect.height < 600 ? 104 : 120;
       const availableW = Math.max(100, rect.width - paddingX);
       const availableH = Math.max(100, rect.height - paddingY);
       const s = Math.min(availableW / 1080, availableH / 1440);
@@ -632,39 +784,42 @@ export function KonvaCanvas() {
       id="canvas-viewport"
       ref={viewportRef}
       className={`flex-1 min-h-0 min-w-0 w-full h-full flex items-center justify-center p-2 sm:p-4 lg:p-6 overflow-hidden relative bg-workspace select-none ${
-        editorMode === 'draw-shape' ? 'cursor-crosshair' : ''
+        editorMode === 'draw-shape' ? 'cursor-crosshair' : editorMode === 'crop-image' ? 'cursor-grab' : ''
       }`}
     >
       {/* Floating Canvas Zoom Bar */}
-      <div className="absolute bottom-3 right-3 z-40 bg-surface-elevated/90 backdrop-blur-md border border-border-default rounded-lg px-2 py-1 flex items-center gap-1.5 shadow-2xl text-xs font-semibold text-white">
+      <div className="canvas-zoom">
         <button
-          className="p-1 hover:bg-surface rounded text-text-secondary hover:text-white text-xs"
+          className="icon-button"
           onClick={() => handleZoom(-0.05)}
           title="Zoom Out"
+          aria-label="Zoom out"
         >
-          -
+          <Minus size={14} />
         </button>
-        <span className="text-[10px] font-mono text-accent-blue font-bold min-w-[32px] text-center">
+        <span>
           {Math.round(scale * 100)}%
         </span>
         <button
-          className="p-1 hover:bg-surface rounded text-text-secondary hover:text-white text-xs"
+          className="icon-button"
           onClick={() => handleZoom(0.05)}
           title="Zoom In"
+          aria-label="Zoom in"
         >
-          +
+          <Plus size={14} />
         </button>
         <button
-          className="px-2 py-0.5 bg-surface hover:bg-surface-hover rounded text-[10px] text-text-secondary hover:text-white border border-border-subtle"
+          className="icon-button zoom-fit"
           onClick={handleResetZoom}
           title="Fit Canvas"
+          aria-label="Fit canvas"
         >
-          Fit
+          <Maximize2 size={13} />
         </button>
       </div>
 
       <div 
-        className="w-[1080px] h-[1440px] shadow-2xl relative transition-transform duration-75 origin-center shrink-0"
+        className="canvas-artboard w-[1080px] h-[1440px] relative transition-transform duration-75 origin-center shrink-0"
         style={{
           transform: `scale(${scale})`,
           backgroundColor: currentBgColor
@@ -678,17 +833,21 @@ export function KonvaCanvas() {
           onMouseDown={handleStageMouseDown}
           onMouseMove={handleStageMouseMove}
           onMouseUp={handleStageMouseUp}
+          onTouchStart={handleStageMouseDown}
+          onTouchMove={handleStageMouseMove}
+          onTouchEnd={handleStageMouseUp}
         >
           <Layer>
             {/* Background Render */}
             <Rect
+              name="canvas-background"
               width={1080}
               height={1440}
               fill={currentBgColor}
             />
 
             {/* Render Canvas Layers (Canonical front-to-back array reversed for Konva back-to-front stage drawing) */}
-            {currentLayers.slice().reverse().map((layer) => {
+            {renderLayers.slice().reverse().map((layer) => {
               // TEXT LAYER
               if (layer.type === 'text') {
                 const textLayer = layer as TextLayerNode;
@@ -747,7 +906,15 @@ export function KonvaCanvas() {
                       e.cancelBubble = true;
                       setSelectedLayerId(layer.id);
                     }}
+                    onTap={(e) => {
+                      e.cancelBubble = true;
+                      setSelectedLayerId(layer.id);
+                    }}
                     onDblClick={(e) => {
+                      e.cancelBubble = true;
+                      setEditingTextId(layer.id);
+                    }}
+                    onDblTap={(e) => {
                       e.cancelBubble = true;
                       setEditingTextId(layer.id);
                     }}
@@ -764,7 +931,14 @@ export function KonvaCanvas() {
                   <ImageNode
                     key={layer.id}
                     layer={layer as ImageLayerNode}
+                    isSelected={selectedLayerId === layer.id}
+                    cropMode={editorMode === 'crop-image' && selectedLayerId === layer.id}
                     onSelect={() => setSelectedLayerId(layer.id)}
+                    onEnterCrop={() => {
+                      setSelectedLayerId(layer.id);
+                      setEditorMode('crop-image');
+                    }}
+                    onCropChange={crop => updateLayerNode(layer.id, { crop })}
                     onDragMove={(e) => handleDragMove(e, layer)}
                     onDragEnd={(e) => handleDragEnd(e, layer)}
                     onTransformEnd={(e) => handleTransformEnd(e, layer)}
@@ -784,6 +958,14 @@ export function KonvaCanvas() {
                     onTransformEnd={(e) => handleTransformEnd(e, layer)}
                   />
                 );
+              }
+
+              if (layer.type === 'logo') {
+                return <LogoNode key={layer.id} layer={layer}
+                  onSelect={() => setSelectedLayerId(layer.id)}
+                  onDragMove={event => handleDragMove(event, layer)}
+                  onDragEnd={event => handleDragEnd(event, layer)}
+                  onTransformEnd={event => handleTransformEnd(event, layer)} />;
               }
 
               // SHAPE LAYER
@@ -809,6 +991,7 @@ export function KonvaCanvas() {
                         e.cancelBubble = true;
                         setSelectedLayerId(layer.id);
                       }}
+                      onTap={(e) => { e.cancelBubble = true; setSelectedLayerId(layer.id); }}
                       onDragMove={(e) => handleDragMove(e, layer)}
                       onDragEnd={(e) => handleDragEnd(e, layer)}
                       onTransformEnd={(e) => handleTransformEnd(e, layer)}
@@ -832,6 +1015,7 @@ export function KonvaCanvas() {
                         e.cancelBubble = true;
                         setSelectedLayerId(layer.id);
                       }}
+                      onTap={(e) => { e.cancelBubble = true; setSelectedLayerId(layer.id); }}
                       onDragMove={(e) => handleDragMove(e, layer)}
                       onDragEnd={(e) => handleDragEnd(e, layer)}
                       onTransformEnd={(e) => handleTransformEnd(e, layer)}
@@ -858,6 +1042,7 @@ export function KonvaCanvas() {
                       e.cancelBubble = true;
                       setSelectedLayerId(layer.id);
                     }}
+                    onTap={(e) => { e.cancelBubble = true; setSelectedLayerId(layer.id); }}
                     onDragMove={(e) => handleDragMove(e, layer)}
                     onDragEnd={(e) => handleDragEnd(e, layer)}
                     onTransformEnd={(e) => handleTransformEnd(e, layer)}
@@ -1155,7 +1340,7 @@ export function KonvaCanvas() {
                 if (newBox.width < 20 || newBox.height < 20) return oldBox;
                 return newBox;
               }}
-              anchorSize={12}
+              anchorSize={isCoarsePointer ? Math.min(72, Math.max(12, Math.round(18 / scale))) : 12}
               anchorCornerRadius={2}
               borderStroke="#0A84FF"
               anchorStroke="#0A84FF"
